@@ -620,6 +620,8 @@ export async function GET(request) {
         displayTime: hourStr,
         displayDate: dateStr,
         temp: Math.round(tMean * 10) / 10,
+        temp_stddev: Math.round(tStd * 100) / 100,
+        humi_stddev: Math.round(hStd * 100) / 100,
         humidity: Math.round(hMean),
         windSpeed: Math.round(avgWindAtTime * 10) / 10,
         weather: {
@@ -647,6 +649,32 @@ export async function GET(request) {
     ...CUACA_INFO_MAP[currentMode]
   };
 
+  // --- MODUL VALIDASI MODEL ---
+  // Gunakan BMKG sebagai data riil (ground truth) jika aktif, jika tidak, gunakan Rata-Rata Ensemble
+  const isBmkgRef = results.bmkg.active && results.bmkg.data !== null;
+  const refTemp = isBmkgRef ? results.bmkg.data.temp : currentTempMean;
+  const refHumi = isBmkgRef ? results.bmkg.data.humidity : currentHumiMean;
+  const refName = isBmkgRef ? 'Stasiun BMKG (Data Riil)' : 'Konsensus Ensemble';
+
+  const validationList = [];
+  Object.keys(results).forEach(key => {
+    const src = results[key];
+    if (src.active && src.data !== null && (isBmkgRef ? key !== 'bmkg' : true)) {
+      const tempDiff = src.data.temp - refTemp;
+      const humiDiff = src.data.humidity - refHumi;
+      const tempAccuracy = Math.max(0, 100 - Math.abs(tempDiff) * 8);
+
+      validationList.push({
+        model: src.name,
+        temp: src.data.temp,
+        humidity: src.data.humidity,
+        temp_diff: Math.round(tempDiff * 100) / 100,
+        humi_diff: Math.round(humiDiff * 100) / 100,
+        accuracy: Math.round(tempAccuracy * 10) / 10
+      });
+    }
+  });
+
   return NextResponse.json({
     city: cityNameVal,
     coordinates: { lat: latVal, lon: lonVal },
@@ -654,6 +682,12 @@ export async function GET(request) {
     timezone: timezoneVal,
     timezone_abbreviation: timezoneAbbrVal,
     timezone_name: timezoneNameVal,
+    validation: {
+      reference: refName,
+      temp_ref: Math.round(refTemp * 100) / 100,
+      humi_ref: Math.round(refHumi),
+      items: validationList
+    },
     ensemble: {
       temp: Math.round(currentTempMean * 10) / 10,
       temp_stddev: Math.round(currentTempStdDev * 100) / 100,

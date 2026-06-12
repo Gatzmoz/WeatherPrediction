@@ -44,6 +44,9 @@ export default function Home() {
   const [loadingWeather, setLoadingWeather] = useState(true);
   const [weatherError, setWeatherError] = useState(null);
   
+  const [showStoryModal, setShowStoryModal] = useState(false);
+  const [storyImageUrl, setStoryImageUrl] = useState('');
+  
   // Default ke Jakarta
   const [selectedCity, setSelectedCity] = useState({
     name: 'Jakarta',
@@ -89,14 +92,51 @@ export default function Home() {
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setSelectedCity({
-            name: 'Lokasi Anda (GPS)',
-            country: 'Koordinat Perangkat',
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            adm4: null
-          });
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          try {
+            const revRes = await fetch(`/api/regions?lat=${latitude}&lon=${longitude}`);
+            if (revRes.ok) {
+              const data = await revRes.json();
+              setSelectedProvince(data.province.code);
+              setSelectedRegency(data.regency.code);
+              setSelectedDistrict(data.district.code);
+              setSelectedVillage(data.village.code);
+              
+              const [regenciesList, districtsList, villagesList] = await Promise.all([
+                fetch(`/api/regions?level=regency&parent=${data.province.code}`).then(res => res.json()),
+                fetch(`/api/regions?level=district&parent=${data.regency.code}`).then(res => res.json()),
+                fetch(`/api/regions?level=village&parent=${data.district.code}`).then(res => res.json())
+              ]);
+              setRegencies(regenciesList);
+              setDistricts(districtsList);
+              setVillages(villagesList);
+
+              setSelectedCity({
+                name: data.village.name,
+                country: `${data.district.name}, ${data.regency.name}, ${data.province.name}`,
+                latitude: latitude,
+                longitude: longitude,
+                adm4: data.village.code
+              });
+            } else {
+              setSelectedCity({
+                name: 'Lokasi Anda (GPS)',
+                country: 'Koordinat Perangkat',
+                latitude: latitude,
+                longitude: longitude,
+                adm4: null
+              });
+            }
+          } catch (e) {
+            setSelectedCity({
+              name: 'Lokasi Anda (GPS)',
+              country: 'Koordinat Perangkat',
+              latitude: latitude,
+              longitude: longitude,
+              adm4: null
+            });
+          }
         },
         (error) => {
           console.log('GPS auto-mount access failed or denied:', error.message);
@@ -251,14 +291,51 @@ export default function Home() {
     setWeatherError(null);
     
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setSelectedCity({
-          name: 'Lokasi Anda (GPS)',
-          country: 'Koordinat Perangkat',
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          adm4: null
-        });
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const revRes = await fetch(`/api/regions?lat=${latitude}&lon=${longitude}`);
+          if (revRes.ok) {
+            const data = await revRes.json();
+            setSelectedProvince(data.province.code);
+            setSelectedRegency(data.regency.code);
+            setSelectedDistrict(data.district.code);
+            setSelectedVillage(data.village.code);
+            
+            const [regenciesList, districtsList, villagesList] = await Promise.all([
+              fetch(`/api/regions?level=regency&parent=${data.province.code}`).then(res => res.json()),
+              fetch(`/api/regions?level=district&parent=${data.regency.code}`).then(res => res.json()),
+              fetch(`/api/regions?level=village&parent=${data.district.code}`).then(res => res.json())
+            ]);
+            setRegencies(regenciesList);
+            setDistricts(districtsList);
+            setVillages(villagesList);
+
+            setSelectedCity({
+              name: data.village.name,
+              country: `${data.district.name}, ${data.regency.name}, ${data.province.name}`,
+              latitude: latitude,
+              longitude: longitude,
+              adm4: data.village.code
+            });
+          } else {
+            setSelectedCity({
+              name: 'Lokasi Anda (GPS)',
+              country: 'Koordinat Perangkat',
+              latitude: latitude,
+              longitude: longitude,
+              adm4: null
+            });
+          }
+        } catch (e) {
+          setSelectedCity({
+            name: 'Lokasi Anda (GPS)',
+            country: 'Koordinat Perangkat',
+            latitude: latitude,
+            longitude: longitude,
+            adm4: null
+          });
+        }
       },
       (error) => {
         setLoadingWeather(false);
@@ -274,6 +351,177 @@ export default function Home() {
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
+  };
+
+  // Handler Eksport gambar ke Instagram Story
+  const generateInstagramStory = () => {
+    if (!weatherData) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 1920;
+    const ctx = canvas.getContext('2d');
+
+    const color = weatherData.ensemble.weather.color || 'partly-cloudy';
+    const grad = ctx.createLinearGradient(0, 0, 0, 1920);
+    
+    if (color === 'sunny') {
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(0.5, '#1e3a8a');
+      grad.addColorStop(1, '#f59e0b');
+    } else if (color === 'rainy' || color === 'heavy-rain') {
+      grad.addColorStop(0, '#05070c');
+      grad.addColorStop(0.6, '#0f172a');
+      grad.addColorStop(1, '#1d4ed8');
+    } else if (color === 'drizzle') {
+      grad.addColorStop(0, '#090d16');
+      grad.addColorStop(0.6, '#0f172a');
+      grad.addColorStop(1, '#0d9488');
+    } else if (color === 'thunderstorm') {
+      grad.addColorStop(0, '#05070c');
+      grad.addColorStop(0.6, '#1e1b4b');
+      grad.addColorStop(1, '#7c3aed');
+    } else {
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(0.6, '#1e293b');
+      grad.addColorStop(1, '#38bdf8');
+    }
+    
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1080, 1920);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.beginPath();
+    ctx.arc(150, 400, 300, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(930, 1500, 400, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.font = '800 36px system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'center';
+    ctx.fillText('ENSEMBLE WEATHER FORECAST', 540, 150);
+
+    const cardX = 90;
+    const cardY = 220;
+    const cardW = 900;
+    const cardH = 920;
+    const cardRadius = 60;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.lineWidth = 4;
+    
+    ctx.beginPath();
+    ctx.moveTo(cardX + cardRadius, cardY);
+    ctx.lineTo(cardX + cardW - cardRadius, cardY);
+    ctx.quadraticCurveTo(cardX + cardW, cardY, cardX + cardW, cardY + cardRadius);
+    ctx.lineTo(cardX + cardW, cardY + cardH - cardRadius);
+    ctx.quadraticCurveTo(cardX + cardW, cardY + cardH, cardX + cardW - cardRadius, cardY + cardH);
+    ctx.lineTo(cardX + cardRadius, cardY + cardH);
+    ctx.quadraticCurveTo(cardX, cardY + cardH, cardX, cardY + cardH - cardRadius);
+    ctx.lineTo(cardX, cardY + cardRadius);
+    ctx.quadraticCurveTo(cardX, cardY, cardX + cardRadius, cardY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 68px system-ui, -apple-system, sans-serif';
+    ctx.fillText(weatherData.city.toUpperCase(), 540, 360);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 34px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${selectedCity.country} (${weatherData.timezone_abbreviation || 'WIB'})`, 540, 420);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 190px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${weatherData.ensemble.temp}°C`, 540, 680);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = '700 48px system-ui, -apple-system, sans-serif';
+    const pctStr = weatherData.ensemble.weather.percentage !== undefined ? ` (${weatherData.ensemble.weather.percentage}%)` : '';
+    ctx.fillText(`${weatherData.ensemble.weather.label}${pctStr}`, 540, 780);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.fillRect(cardX + 60, 840, cardW - 120, 220);
+    
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '600 32px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`Sensasi: ${weatherData.ensemble.feelsLike}°C`, 310, 910);
+    ctx.fillText(`Angin: ${weatherData.ensemble.windSpeed} m/s`, 770, 910);
+    ctx.fillText(`Kelembapan: ${weatherData.ensemble.humidity}%`, 310, 990);
+    ctx.fillText(`Curah Hujan: ${weatherData.ensemble.precipitation} mm`, 770, 990);
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.4)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.lineWidth = 3;
+    
+    const fCardX = 90;
+    const fCardY = 1200;
+    const fCardW = 900;
+    const fCardH = 580;
+    const fCardRadius = 45;
+
+    ctx.beginPath();
+    ctx.moveTo(fCardX + fCardRadius, fCardY);
+    ctx.lineTo(fCardX + fCardW - fCardRadius, fCardY);
+    ctx.quadraticCurveTo(fCardX + fCardW, fCardY, fCardX + fCardW, fCardY + fCardRadius);
+    ctx.lineTo(fCardX + fCardW, fCardY + fCardH - fCardRadius);
+    ctx.quadraticCurveTo(fCardX + fCardW, fCardY + fCardH, fCardX + fCardW - fCardRadius, fCardY + fCardH);
+    ctx.lineTo(fCardX + fCardRadius, fCardY + fCardH);
+    ctx.quadraticCurveTo(fCardX, fCardY + fCardH, fCardX, fCardY + fCardH - cardRadius);
+    ctx.lineTo(fCardX, fCardY + fCardRadius);
+    ctx.quadraticCurveTo(fCardX, fCardY, fCardX + fCardRadius, fCardY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 38px system-ui, -apple-system, sans-serif';
+    ctx.fillText('PRAKIRAAN CUACA 24 JAM', 540, 1270);
+
+    if (weatherData.forecast && weatherData.forecast.length >= 4) {
+      const cols = weatherData.forecast.slice(0, 4);
+      const startX = 170;
+      const colStep = 245;
+
+      cols.forEach((col, idx) => {
+        const x = startX + idx * colStep;
+        
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '700 34px system-ui, -apple-system, sans-serif';
+        ctx.fillText(col.displayTime, x, 1370);
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+        ctx.fillText(col.displayDate, x, 1420);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '800 48px system-ui, -apple-system, sans-serif';
+        ctx.fillText(`${col.temp}°C`, x, 1530);
+
+        if (col.temp_stddev !== undefined) {
+          ctx.fillStyle = col.temp_stddev > 2 ? '#fbbf24' : '#34d399';
+          ctx.font = '700 24px system-ui, -apple-system, sans-serif';
+          ctx.fillText(`±${col.temp_stddev.toFixed(1)}`, x, 1585);
+        }
+
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '700 26px system-ui, -apple-system, sans-serif';
+        ctx.fillText(col.weather.label, x, 1660);
+        ctx.fillText(`${col.weather.percentage}%`, x, 1710);
+      });
+    }
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = '600 26px system-ui, -apple-system, sans-serif';
+    ctx.fillText('dihasilkan oleh Ensemble Weather App', 540, 1850);
+
+    const dataUrl = canvas.toDataURL('image/png');
+    setStoryImageUrl(dataUrl);
+    setShowStoryModal(true);
   };
 
   // Handler dropdown manual berjenjang
@@ -617,9 +865,32 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className={`${styles.confidenceBadge} ${getConfidenceClass(weatherData.ensemble.confidence.level)}`}>
-                <Gauge size={14} />
-                <span>Keyakinan: {weatherData.ensemble.confidence.level} ({weatherData.ensemble.confidence.score}%)</span>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className={`${styles.confidenceBadge} ${getConfidenceClass(weatherData.ensemble.confidence.level)}`}>
+                  <Gauge size={14} />
+                  <span>Keyakinan: {weatherData.ensemble.confidence.level} ({weatherData.ensemble.confidence.score}%)</span>
+                </div>
+                <button
+                  onClick={generateInstagramStory}
+                  title="Eksport sebagai Gambar Instagram Story"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'linear-gradient(135deg, #e1306c 0%, #c13584 50%, #833ab4 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 10px rgba(225, 48, 108, 0.25)',
+                    transition: 'all 0.2s ease',
+                    outline: 'none'
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
+                </button>
               </div>
             </div>
 
@@ -734,7 +1005,14 @@ export default function Home() {
                   <div className={styles.forecastIconWrapper}>
                     <WeatherIcon iconName={fc.weather.icon} size={28} />
                   </div>
-                  <span className={styles.forecastTemp}>{fc.temp}°C</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', justifyContent: 'center' }}>
+                    <span className={styles.forecastTemp}>{fc.temp}°C</span>
+                    {fc.temp_stddev !== undefined && (
+                      <span style={{ fontSize: '0.65rem', color: fc.temp_stddev > 2 ? '#fbbf24' : '#34d399', fontWeight: 700 }} title="Simpangan baku suhu antar model">
+                        &plusmn;{fc.temp_stddev.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
                   <span className={styles.forecastWeatherLabel}>{fc.weather.label}</span>
                   {fc.weather.percentage !== undefined && (
                     <span className={styles.forecastPercentage}>{fc.weather.percentage}%</span>
@@ -896,7 +1174,80 @@ export default function Home() {
             )}
           </div>
 
-          {/* 5. Data Berdasarkan Sumber API */}
+          {/* 5. Validasi & Akurasi Model vs Data Riil */}
+          {weatherData.validation && (
+            <div className={styles.glassCard}>
+              <h3 className={styles.sectionTitle} style={{ marginBottom: '0.5rem' }}>
+                <Gauge size={18} style={{ color: 'var(--accent-color)', marginRight: '0.25rem' }} />
+                Validasi Prediksi vs Data Riil ({weatherData.validation.reference})
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: '1.4' }}>
+                Memvalidasi deviasi pembacaan masing-masing model cuaca global secara real-time terhadap data riil referensi stasiun <strong>{weatherData.validation.reference}</strong> ({weatherData.validation.temp_ref}°C, {weatherData.validation.humi_ref}% RH).
+              </p>
+              
+              <div className={styles.tableContainer}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Penyedia Model</th>
+                      <th>Suhu Model</th>
+                      <th>Selisih Suhu (&Delta; Temp)</th>
+                      <th>Kelembapan Model</th>
+                      <th>Selisih Kelembapan (&Delta; Humi)</th>
+                      <th>Akurasi Relatif Suhu</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {weatherData.validation.items.map((item, index) => (
+                      <tr key={index}>
+                        <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.model}</td>
+                        <td>{item.temp}°C</td>
+                        <td style={{ 
+                          color: item.temp_diff === 0 ? '#34d399' : item.temp_diff > 0 ? '#f87171' : '#60a5fa',
+                          fontWeight: 600 
+                        }}>
+                          {item.temp_diff > 0 ? `+${item.temp_diff}` : item.temp_diff} °C
+                        </td>
+                        <td>{item.humidity}%</td>
+                        <td style={{ 
+                          color: item.humi_diff === 0 ? '#34d399' : item.humi_diff > 0 ? '#f87171' : '#60a5fa',
+                          fontWeight: 600
+                        }}>
+                          {item.humi_diff > 0 ? `+${item.humi_diff}` : item.humi_diff} %
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div style={{ 
+                              height: '6px', 
+                              width: '60px', 
+                              background: 'rgba(255, 255, 255, 0.05)', 
+                              borderRadius: '3px',
+                              overflow: 'hidden' 
+                            }}>
+                              <div style={{ 
+                                height: '100%', 
+                                width: `${item.accuracy}%`, 
+                                background: item.accuracy > 90 ? '#34d399' : item.accuracy > 75 ? '#fbbf24' : '#f87171'
+                              }}></div>
+                            </div>
+                            <span style={{ 
+                              fontWeight: 750, 
+                              color: item.accuracy > 90 ? '#34d399' : item.accuracy > 75 ? '#fbbf24' : '#f87171',
+                              fontSize: '0.8rem'
+                            }}>
+                              {item.accuracy}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* 6. Data Berdasarkan Sumber API */}
           <div className={styles.glassCard}>
             <h3 className={styles.sectionTitle} style={{ marginBottom: '1.25rem' }}>
               <MapPin size={18} style={{ color: 'var(--accent-color)', marginRight: '0.25rem' }} />
@@ -986,6 +1337,136 @@ OPENWEATHERMAP_API_KEY=kunci_openweathermap_anda`}
           Metode konsensus menghitung rata-rata deviasi temperatur secara matematis untuk memberikan skor tingkat keyakinan prakiraan.
         </div>
       </footer>
+
+      {/* Modal Instagram Story Export */}
+      {showStoryModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(5, 7, 12, 0.9)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.5rem',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+        >
+          <div 
+            style={{
+              background: 'rgba(30, 41, 59, 0.7)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '1.5rem',
+              padding: '1.5rem',
+              maxWidth: '450px',
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '1rem',
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)',
+              position: 'relative'
+            }}
+          >
+            {/* Close Button */}
+            <button 
+              onClick={() => setShowStoryModal(false)}
+              style={{
+                position: 'absolute',
+                top: '1rem',
+                right: '1rem',
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: 'none',
+                color: '#fff',
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s'
+              }}
+            >
+              <X size={16} />
+            </button>
+
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff', margin: 0 }}>Instagram Story Preview</h3>
+            
+            {/* Preview Image (9:16 aspect ratio scaled) */}
+            <div 
+              style={{ 
+                width: '200px', 
+                height: '356px', 
+                borderRadius: '0.75rem', 
+                overflow: 'hidden', 
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                boxShadow: '0 8px 25px rgba(0, 0, 0, 0.3)'
+              }}
+            >
+              <img 
+                src={storyImageUrl} 
+                alt="Instagram Story Preview" 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            </div>
+
+            {/* Instructions */}
+            <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', padding: '0 0.5rem' }}>
+              <p style={{ fontWeight: 650, color: '#fbbf24', marginBottom: '0.25rem' }}>💡 Petunjuk Penyimpanan:</p>
+              <p><strong>Mobile (HP):</strong> Tekan lama pada gambar lalu pilih <strong>Simpan Gambar / Save Image</strong>.</p>
+              <p style={{ marginTop: '0.15rem' }}><strong>Desktop:</strong> Klik tombol unduh di bawah ini.</p>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '0.75rem', width: '100%', marginTop: '0.5rem' }}>
+              <button
+                onClick={() => setShowStoryModal(false)}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '0.75rem',
+                  borderRadius: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  transition: 'background 0.2s'
+                }}
+              >
+                Tutup
+              </button>
+              
+              <a
+                href={storyImageUrl}
+                download={`${weatherData.city.toLowerCase()}_weather_story.png`}
+                style={{
+                  flex: 1,
+                  background: 'linear-gradient(135deg, #e1306c 0%, #c13584 50%, #833ab4 100%)',
+                  color: '#fff',
+                  textDecoration: 'none',
+                  textAlign: 'center',
+                  padding: '0.75rem',
+                  borderRadius: '0.75rem',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  boxShadow: '0 4px 10px rgba(225, 48, 108, 0.3)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Unduh Gambar
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
