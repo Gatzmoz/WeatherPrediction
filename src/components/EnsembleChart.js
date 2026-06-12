@@ -21,6 +21,10 @@ export default function EnsembleChart({ data }) {
     sources.push({ key: 'bmkg', name: 'BMKG (Indonesia)', color: '#eab308' });
   }
 
+  if (data.sources && data.sources.machineLearning && data.sources.machineLearning.active) {
+    sources.push({ key: 'machineLearning', name: 'ML-MOS (Bias)', color: '#a855f7' });
+  }
+
   // Ekstrak data untuk grafik
   const chartData = sources.map(src => {
     const srcData = data.sources[src.key];

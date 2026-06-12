@@ -353,7 +353,7 @@ export default function Home() {
     );
   };
 
-  // Handler Eksport gambar ke Instagram Story
+  // Handler Eksport gambar ke Instagram Story (Upgraded Premium Design)
   const generateInstagramStory = () => {
     if (!weatherData) return;
 
@@ -362,6 +362,7 @@ export default function Home() {
     canvas.height = 1920;
     const ctx = canvas.getContext('2d');
 
+    // 1. Background Gradient & Decorative Glowing Blobs
     const color = weatherData.ensemble.weather.color || 'partly-cloudy';
     const grad = ctx.createLinearGradient(0, 0, 0, 1920);
     
@@ -390,29 +391,250 @@ export default function Home() {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 1080, 1920);
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-    ctx.beginPath();
-    ctx.arc(150, 400, 300, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(930, 1500, 400, 0, Math.PI * 2);
-    ctx.fill();
+    const drawGlowBlob = (cx, cy, r, c1, c2) => {
+      ctx.save();
+      const radial = ctx.createRadialGradient(cx, cy, 10, cx, cy, r);
+      radial.addColorStop(0, c1);
+      radial.addColorStop(1, c2);
+      ctx.fillStyle = radial;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
 
+    if (color === 'sunny') {
+      drawGlowBlob(200, 400, 450, 'rgba(245, 158, 11, 0.18)', 'rgba(245, 158, 11, 0)');
+      drawGlowBlob(880, 1550, 500, 'rgba(29, 78, 216, 0.22)', 'rgba(29, 78, 216, 0)');
+    } else if (color === 'rainy' || color === 'heavy-rain' || color === 'thunderstorm') {
+      drawGlowBlob(150, 350, 450, 'rgba(59, 130, 246, 0.15)', 'rgba(59, 130, 246, 0)');
+      drawGlowBlob(900, 1500, 550, 'rgba(99, 102, 241, 0.18)', 'rgba(99, 102, 241, 0)');
+    } else {
+      drawGlowBlob(200, 350, 450, 'rgba(56, 189, 248, 0.18)', 'rgba(56, 189, 248, 0)');
+      drawGlowBlob(880, 1500, 500, 'rgba(30, 41, 59, 0.3)', 'rgba(30, 41, 59, 0)');
+    }
+
+    // 2. Drawing helpers
+    const wrapText = (cText, x, y, maxWidth, lineHeight, maxLines = 2) => {
+      const words = cText.split(' ');
+      let line = '';
+      let lines = [];
+      
+      for (let n = 0; n < words.length; n++) {
+        let testLine = line + words[n] + ' ';
+        let metrics = ctx.measureText(testLine);
+        let testWidth = metrics.width;
+        if (testWidth > maxWidth && n > 0) {
+          lines.push(line.trim());
+          line = words[n] + ' ';
+        } else {
+          line = testLine;
+        }
+      }
+      lines.push(line.trim());
+      
+      const linesToDraw = lines.slice(0, maxLines);
+      linesToDraw.forEach((lineText, index) => {
+        ctx.fillText(lineText, x, y + index * lineHeight);
+      });
+      return linesToDraw.length;
+    };
+
+    const drawWeatherIcon = (cx, cy, scale, iconName) => {
+      ctx.save();
+      
+      const drawSun = (x, y, r) => {
+        ctx.save();
+        ctx.shadowColor = '#fbbf24';
+        ctx.shadowBlur = 20 * scale;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fill();
+        ctx.restore();
+        
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = Math.max(2.5, 5.5 * scale);
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 8; i++) {
+          const angle = (i * Math.PI) / 4;
+          const startX = x + Math.cos(angle) * (r + 7 * scale);
+          const startY = y + Math.sin(angle) * (r + 7 * scale);
+          const endX = x + Math.cos(angle) * (r + 17 * scale);
+          const endY = y + Math.sin(angle) * (r + 17 * scale);
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+        }
+      };
+
+      const drawCloud = (x, y, sc, cloudColor = '#f8fafc') => {
+        ctx.save();
+        ctx.fillStyle = cloudColor;
+        ctx.beginPath();
+        ctx.arc(x - 20 * sc, y + 10 * sc, 20 * sc, 0, Math.PI * 2);
+        ctx.arc(x + 20 * sc, y + 10 * sc, 16 * sc, 0, Math.PI * 2);
+        ctx.arc(x, y - 10 * sc, 26 * sc, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.rect(x - 20 * sc, y, 40 * sc, 25 * sc);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      };
+
+      const drawRain = (x, y, isHeavy = false) => {
+        drawCloud(x, y - 8 * scale, scale, '#94a3b8');
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = Math.max(2, 4.5 * scale);
+        ctx.lineCap = 'round';
+        
+        const offsets = isHeavy ? [-15 * scale, 0, 15 * scale] : [-8 * scale, 8 * scale];
+        offsets.forEach(offset => {
+          ctx.beginPath();
+          ctx.moveTo(x + offset, y + 10 * scale);
+          ctx.lineTo(x + offset - 4 * scale, y + 26 * scale);
+          ctx.stroke();
+        });
+      };
+
+      const drawThunder = (x, y) => {
+        drawCloud(x, y - 8 * scale, scale, '#475569');
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.moveTo(x - 4 * scale, y + 10 * scale);
+        ctx.lineTo(x + 8 * scale, y + 10 * scale);
+        ctx.lineTo(x, y + 22 * scale);
+        ctx.lineTo(x + 12 * scale, y + 22 * scale);
+        ctx.lineTo(x - 8 * scale, y + 38 * scale);
+        ctx.lineTo(x - 2 * scale, y + 24 * scale);
+        ctx.lineTo(x - 8 * scale, y + 24 * scale);
+        ctx.closePath();
+        ctx.fill();
+      };
+
+      if (iconName === 'Sun') {
+        drawSun(cx, cy, 25 * scale);
+      } else if (iconName === 'CloudSun') {
+        drawSun(cx - 14 * scale, cy - 12 * scale, 18 * scale);
+        drawCloud(cx + 8 * scale, cy + 8 * scale, 0.85 * scale, 'rgba(255, 255, 255, 0.95)');
+      } else if (iconName === 'Cloud' || iconName === 'CloudFog') {
+        drawCloud(cx, cy, scale, '#f8fafc');
+      } else if (iconName === 'CloudDrizzle') {
+        drawRain(cx, cy, false);
+      } else if (iconName === 'CloudRain' || iconName === 'Snowflake') {
+        drawRain(cx, cy, true);
+      } else if (iconName === 'CloudLightning') {
+        drawThunder(cx, cy);
+      } else {
+        drawCloud(cx, cy, scale, '#f8fafc');
+      }
+
+      ctx.restore();
+    };
+
+    const drawThermometer = (x, y) => {
+      ctx.save();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.fillStyle = '#94a3b8';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(x, y + 10, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x - 2.5, y + 6);
+      ctx.lineTo(x - 2.5, y - 10);
+      ctx.arc(x, y - 10, 2.5, Math.PI, 0);
+      ctx.lineTo(x + 2.5, y + 6);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = '#f87171';
+      ctx.beginPath();
+      ctx.arc(x, y + 10, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.rect(x - 1, y, 2, 7);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    const drawWindLines = (x, y) => {
+      ctx.save();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x - 12, y - 4);
+      ctx.lineTo(x + 4, y - 4);
+      ctx.arc(x + 4, y - 8, 4, Math.PI / 2, (3 * Math.PI) / 2, true);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y + 3);
+      ctx.lineTo(x + 8, y + 3);
+      ctx.arc(x + 8, y + 7, 4, (3 * Math.PI) / 2, Math.PI / 2, false);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 10, y + 10);
+      ctx.lineTo(x + 2, y + 10);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawDroplet = (x, y) => {
+      ctx.save();
+      ctx.fillStyle = '#60a5fa';
+      ctx.beginPath();
+      ctx.moveTo(x, y - 12);
+      ctx.bezierCurveTo(x - 9, y - 3, x - 9, y + 5, x, y + 11);
+      ctx.bezierCurveTo(x + 9, y + 5, x + 9, y - 3, x, y - 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.beginPath();
+      ctx.arc(x - 2.5, y + 2, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    const drawRainDrops = (x, y) => {
+      ctx.save();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x - 6, y - 6);
+      ctx.lineTo(x - 9, y + 4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 4, y - 6);
+      ctx.lineTo(x + 1, y + 4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 1, y + 2);
+      ctx.lineTo(x - 4, y + 12);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    // 3. Draw Watermark Header
     ctx.font = '800 36px system-ui, -apple-system, sans-serif';
     ctx.fillStyle = '#94a3b8';
     ctx.textAlign = 'center';
     ctx.fillText('ENSEMBLE WEATHER FORECAST', 540, 150);
 
+    // 4. Main Glassmorphic Card (Current consensus)
     const cardX = 90;
     const cardY = 220;
     const cardW = 900;
     const cardH = 920;
     const cardRadius = 60;
 
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-    ctx.lineWidth = 4;
-    
+    // Card background
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
     ctx.beginPath();
     ctx.moveTo(cardX + cardRadius, cardY);
     ctx.lineTo(cardX + cardW - cardRadius, cardY);
@@ -425,45 +647,112 @@ export default function Home() {
     ctx.quadraticCurveTo(cardX, cardY, cardX + cardRadius, cardY);
     ctx.closePath();
     ctx.fill();
+
+    // Card premium gradient border
+    const borderGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
+    borderGrad.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
+    borderGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.04)');
+    borderGrad.addColorStop(1, 'rgba(255, 255, 255, 0.12)');
+    ctx.strokeStyle = borderGrad;
+    ctx.lineWidth = 4;
     ctx.stroke();
 
+    // Title (City Name) - Dynamic size to prevent clipping!
     ctx.fillStyle = '#ffffff';
-    ctx.font = '800 68px system-ui, -apple-system, sans-serif';
-    ctx.fillText(weatherData.city.toUpperCase(), 540, 360);
+    let cityFontSize = 68;
+    ctx.font = `800 ${cityFontSize}px system-ui, -apple-system, sans-serif`;
+    while (ctx.measureText(weatherData.city.toUpperCase()).width > 780 && cityFontSize > 32) {
+      cityFontSize -= 2;
+      ctx.font = `800 ${cityFontSize}px system-ui, -apple-system, sans-serif`;
+    }
+    ctx.fillText(weatherData.city.toUpperCase(), 540, 340);
 
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '600 34px system-ui, -apple-system, sans-serif';
-    ctx.fillText(`${selectedCity.country} (${weatherData.timezone_abbreviation || 'WIB'})`, 540, 420);
+    // Subtitle (Country/Location) - Wrapped to 2 lines if needed!
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '600 28px system-ui, -apple-system, sans-serif';
+    const subtitleText = `${selectedCity.country} (${weatherData.timezone_abbreviation || 'WIB'})`;
+    wrapText(subtitleText, 540, 390, 780, 36, 2);
 
+    // Consensus Main Weather Icon
+    drawWeatherIcon(540, 530, 2.2, weatherData.ensemble.weather.icon);
+
+    // Consensus Temperature
     ctx.fillStyle = '#ffffff';
-    ctx.font = '800 190px system-ui, -apple-system, sans-serif';
-    ctx.fillText(`${weatherData.ensemble.temp}°C`, 540, 680);
+    ctx.font = '800 170px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${weatherData.ensemble.temp}°C`, 540, 720);
 
+    // Consensus Weather Label & Percentage
     ctx.fillStyle = '#38bdf8';
-    ctx.font = '700 48px system-ui, -apple-system, sans-serif';
+    ctx.font = '700 44px system-ui, -apple-system, sans-serif';
     const pctStr = weatherData.ensemble.weather.percentage !== undefined ? ` (${weatherData.ensemble.weather.percentage}%)` : '';
-    ctx.fillText(`${weatherData.ensemble.weather.label}${pctStr}`, 540, 780);
+    ctx.fillText(`${weatherData.ensemble.weather.label}${pctStr}`, 540, 800);
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-    ctx.fillRect(cardX + 60, 840, cardW - 120, 220);
-    
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = '600 32px system-ui, -apple-system, sans-serif';
-    ctx.fillText(`Sensasi: ${weatherData.ensemble.feelsLike}°C`, 310, 910);
-    ctx.fillText(`Angin: ${weatherData.ensemble.windSpeed} m/s`, 770, 910);
-    ctx.fillText(`Kelembapan: ${weatherData.ensemble.humidity}%`, 310, 990);
-    ctx.fillText(`Curah Hujan: ${weatherData.ensemble.precipitation} mm`, 770, 990);
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.4)';
+    // Parameters Grid Box (Inner Frosted Card)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.fillRect(cardX + 60, 860, cardW - 120, 210);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-    ctx.lineWidth = 3;
-    
+    ctx.strokeRect(cardX + 60, 860, cardW - 120, 210);
+
+    // Grid divider lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(540, 860);
+    ctx.lineTo(540, 1070);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(180, 965);
+    ctx.lineTo(900, 965);
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+
+    // Q1: Sensasi Termal
+    drawThermometer(210, 915);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Sensasi', 240, 905);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 32px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${weatherData.ensemble.feelsLike}°C`, 240, 942);
+
+    // Q2: Kecepatan Angin
+    drawWindLines(610, 915);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Angin', 640, 905);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 32px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${weatherData.ensemble.windSpeed} m/s`, 640, 942);
+
+    // Q3: Kelembapan
+    drawDroplet(210, 1015);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Kelembapan', 240, 1005);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 32px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${weatherData.ensemble.humidity}%`, 240, 1042);
+
+    // Q4: Curah Hujan
+    drawRainDrops(610, 1015);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Curah Hujan', 640, 1005);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 32px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${weatherData.ensemble.precipitation} mm`, 640, 1042);
+
+    ctx.textAlign = 'center';
+
+    // 5. Forecast Glassmorphic Card (24h Forecast)
     const fCardX = 90;
     const fCardY = 1200;
     const fCardW = 900;
     const fCardH = 580;
     const fCardRadius = 45;
 
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
     ctx.beginPath();
     ctx.moveTo(fCardX + fCardRadius, fCardY);
     ctx.lineTo(fCardX + fCardW - fCardRadius, fCardY);
@@ -471,17 +760,26 @@ export default function Home() {
     ctx.lineTo(fCardX + fCardW, fCardY + fCardH - fCardRadius);
     ctx.quadraticCurveTo(fCardX + fCardW, fCardY + fCardH, fCardX + fCardW - fCardRadius, fCardY + fCardH);
     ctx.lineTo(fCardX + fCardRadius, fCardY + fCardH);
-    ctx.quadraticCurveTo(fCardX, fCardY + fCardH, fCardX, fCardY + fCardH - cardRadius);
+    ctx.quadraticCurveTo(fCardX, fCardY + fCardH, fCardX, fCardY + fCardH - fCardRadius);
     ctx.lineTo(fCardX, fCardY + fCardRadius);
     ctx.quadraticCurveTo(fCardX, fCardY, fCardX + fCardRadius, fCardY);
     ctx.closePath();
     ctx.fill();
+
+    const fBorderGrad = ctx.createLinearGradient(fCardX, fCardY, fCardX + fCardW, fCardY + fCardH);
+    fBorderGrad.addColorStop(0, 'rgba(255, 255, 255, 0.16)');
+    fBorderGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.02)');
+    fBorderGrad.addColorStop(1, 'rgba(255, 255, 255, 0.08)');
+    ctx.strokeStyle = fBorderGrad;
+    ctx.lineWidth = 3;
     ctx.stroke();
 
+    // Section Title
     ctx.fillStyle = '#ffffff';
     ctx.font = '800 38px system-ui, -apple-system, sans-serif';
     ctx.fillText('PRAKIRAAN CUACA 24 JAM', 540, 1270);
 
+    // Columns
     if (weatherData.forecast && weatherData.forecast.length >= 4) {
       const cols = weatherData.forecast.slice(0, 4);
       const startX = 170;
@@ -490,31 +788,49 @@ export default function Home() {
       cols.forEach((col, idx) => {
         const x = startX + idx * colStep;
         
+        // Time
         ctx.fillStyle = '#e2e8f0';
         ctx.font = '700 34px system-ui, -apple-system, sans-serif';
-        ctx.fillText(col.displayTime, x, 1370);
+        ctx.fillText(col.displayTime, x, 1345);
 
+        // Date
         ctx.fillStyle = '#94a3b8';
         ctx.font = '600 24px system-ui, -apple-system, sans-serif';
-        ctx.fillText(col.displayDate, x, 1420);
+        ctx.fillText(col.displayDate, x, 1390);
 
+        // Small Vector Icon
+        drawWeatherIcon(x, 1465, 0.75, col.weather.icon);
+
+        // Temperature
         ctx.fillStyle = '#ffffff';
         ctx.font = '800 48px system-ui, -apple-system, sans-serif';
-        ctx.fillText(`${col.temp}°C`, x, 1530);
+        ctx.fillText(`${col.temp}°C`, x, 1540);
 
+        // StdDev
         if (col.temp_stddev !== undefined) {
           ctx.fillStyle = col.temp_stddev > 2 ? '#fbbf24' : '#34d399';
-          ctx.font = '700 24px system-ui, -apple-system, sans-serif';
-          ctx.fillText(`±${col.temp_stddev.toFixed(1)}`, x, 1585);
+          ctx.font = '700 22px system-ui, -apple-system, sans-serif';
+          ctx.fillText(`±${col.temp_stddev.toFixed(1)}`, x, 1590);
         }
 
+        // Weather Label - Dynamic size to prevent column overlap!
         ctx.fillStyle = '#38bdf8';
-        ctx.font = '700 26px system-ui, -apple-system, sans-serif';
-        ctx.fillText(col.weather.label, x, 1660);
-        ctx.fillText(`${col.weather.percentage}%`, x, 1710);
+        let labelSize = 25;
+        ctx.font = `700 ${labelSize}px system-ui, -apple-system, sans-serif`;
+        while (ctx.measureText(col.weather.label).width > 220 && labelSize > 16) {
+          labelSize -= 1;
+          ctx.font = `700 ${labelSize}px system-ui, -apple-system, sans-serif`;
+        }
+        ctx.fillText(col.weather.label, x, 1650);
+
+        // Percentage
+        ctx.fillStyle = '#34d399';
+        ctx.font = '700 23px system-ui, -apple-system, sans-serif';
+        ctx.fillText(`${col.weather.percentage}%`, x, 1695);
       });
     }
 
+    // 6. Footer Watermark
     ctx.fillStyle = '#64748b';
     ctx.font = '600 26px system-ui, -apple-system, sans-serif';
     ctx.fillText('dihasilkan oleh Ensemble Weather App', 540, 1850);
