@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
 // Pemetaan WMO Code (Open-Meteo) ke Unified Code
-// 1: Cerah, 2: Cerah Berawan, 3: Mendung, 4: Kabut, 5: Gerimis, 6: Hujan, 7: Hujan Lebat, 8: Salju, 9: Badai Petir
 function mapWMOToUnified(code) {
   if (code === 0) return 1; // Clear sky
   if (code >= 1 && code <= 3) return 2; // Mainly clear, partly cloudy, and overcast
@@ -17,7 +16,6 @@ function mapWMOToUnified(code) {
 
 // Pemetaan WeatherAPI Condition Code ke Unified Code
 function mapWeatherAPIToUnified(code) {
-  // WeatherAPI menggunakan ID unik. https://www.weatherapi.com/docs/weather_conditions.json
   if (code === 1000) return 1; // Sunny
   if (code === 1003) return 2; // Partly cloudy
   if (code === 1006 || code === 1009) return 3; // Cloudy, Overcast
@@ -70,15 +68,15 @@ export async function GET(request) {
   const openWeatherMapKey = process.env.OPENWEATHERMAP_API_KEY;
 
   const results = {
-    openMeteo: { name: 'Open-Meteo', active: false, simulated: false, data: null, error: null },
-    weatherApi: { name: 'WeatherAPI', active: false, simulated: false, data: null, error: null },
-    openWeatherMap: { name: 'OpenWeatherMap', active: false, simulated: false, data: null, error: null }
+    openMeteo: { name: 'Open-Meteo', active: false, simulated: false, data: null, hourly: null, error: null },
+    weatherApi: { name: 'WeatherAPI', active: false, simulated: false, data: null, hourly: null, error: null },
+    openWeatherMap: { name: 'OpenWeatherMap', active: false, simulated: false, data: null, hourly: null, error: null }
   };
 
-  // 1. Fetch Open-Meteo (No key needed)
+  // --- 1. FETCH OPEN-METEO (Current + Hourly) ---
   try {
-    const openMeteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
-    const res = await fetch(openMeteoUrl, { next: { revalidate: 900 } }); // Cache 15 menit
+    const openMeteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+    const res = await fetch(openMeteoUrl, { next: { revalidate: 900 } });
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
     const data = await res.json();
     
@@ -91,31 +89,39 @@ export async function GET(request) {
       rawCode: data.current.weather_code,
       precipitation: data.current.precipitation || 0
     };
+
+    // Parse Hourly
+    if (data.hourly) {
+      results.openMeteo.hourly = data.hourly.time.map((timeStr, idx) => ({
+        time: new Date(timeStr).getTime(),
+        temp: data.hourly.temperature_2m[idx],
+        humidity: data.hourly.relative_humidity_2m[idx],
+        windSpeed: data.hourly.wind_speed_10m[idx],
+        feelsLike: data.hourly.apparent_temperature[idx],
+        unifiedCode: mapWMOToUnified(data.hourly.weather_code[idx]),
+        precipitation: data.hourly.precipitation[idx] || 0
+      }));
+    }
     results.openMeteo.active = true;
   } catch (err) {
     results.openMeteo.error = err.message;
   }
 
-  // Helper untuk membuat data simulasi berdasarkan Open-Meteo
-  const generateSimulatedData = (baseData, tempOffset, humidityOffset, windOffset, codeOffset) => {
-    if (!baseData) return null;
+  // Helper deviasi acak simulasi
+  const generateSimulatedPoint = (basePoint, tempOffset, humidityOffset, windOffset, codeOffset) => {
+    if (!basePoint) return null;
+    const temp = Math.round((basePoint.temp + tempOffset) * 10) / 10;
+    const humidity = Math.min(100, Math.max(0, basePoint.humidity + humidityOffset));
+    const windSpeed = Math.max(0, Math.round((basePoint.windSpeed + windOffset) * 10) / 10);
+    const feelsLike = Math.round((basePoint.feelsLike + tempOffset * 0.8) * 10) / 10;
     
-    // Berikan deviasi acak yang konsisten berdasarkan offset
-    const temp = Math.round((baseData.temp + tempOffset) * 10) / 10;
-    const humidity = Math.min(100, Math.max(0, baseData.humidity + humidityOffset));
-    const windSpeed = Math.max(0, Math.round((baseData.windSpeed + windOffset) * 10) / 10);
-    const feelsLike = Math.round((baseData.feelsLike + tempOffset * 0.8) * 10) / 10;
-    
-    // Pilih unified code yang mirip
-    let unifiedCode = baseData.unifiedCode;
+    let unifiedCode = basePoint.unifiedCode;
     if (codeOffset !== 0) {
-      // Sedikit mengacak kode cuaca yang berdekatan
-      const options = [baseData.unifiedCode];
-      if (baseData.unifiedCode === 1) options.push(2);
-      else if (baseData.unifiedCode === 2) options.push(1, 3);
-      else if (baseData.unifiedCode === 3) options.push(2, 6);
-      else if (baseData.unifiedCode === 6) options.push(5, 7);
-      
+      const options = [basePoint.unifiedCode];
+      if (basePoint.unifiedCode === 1) options.push(2);
+      else if (basePoint.unifiedCode === 2) options.push(1, 3);
+      else if (basePoint.unifiedCode === 3) options.push(2, 6);
+      else if (basePoint.unifiedCode === 6) options.push(5, 7);
       unifiedCode = options[Math.abs(codeOffset) % options.length];
     }
 
@@ -126,140 +132,162 @@ export async function GET(request) {
       feelsLike,
       unifiedCode,
       rawCode: 'simulated',
-      precipitation: baseData.precipitation
+      precipitation: basePoint.precipitation
     };
   };
 
-  // 2. Fetch WeatherAPI
+  // --- 2. FETCH WEATHERAPI (Current + Forecast) ---
   if (weatherApiKey) {
     try {
-      const url = `https://api.weatherapi.com/v1/current.json?key=${weatherApiKey}&q=${lat},${lon}`;
+      const url = `https://api.weatherapi.com/v1/forecast.json?key=${weatherApiKey}&q=${lat},${lon}&days=2`;
       const res = await fetch(url, { next: { revalidate: 900 } });
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
+      
       results.weatherApi.data = {
         temp: data.current.temp_c,
         humidity: data.current.humidity,
-        windSpeed: data.current.wind_kph / 3.6, // ubah kph ke m/s
+        windSpeed: data.current.wind_kph / 3.6,
         feelsLike: data.current.feelslike_c,
         unifiedCode: mapWeatherAPIToUnified(data.current.condition.code),
         rawCode: data.current.condition.code,
         precipitation: data.current.precip_mm || 0
       };
+
+      // Parse Hourly
+      const hourlyList = [];
+      data.forecast.forecastday.forEach(day => {
+        day.hour.forEach(hr => {
+          hourlyList.push({
+            time: hr.time_epoch * 1000,
+            temp: hr.temp_c,
+            humidity: hr.humidity,
+            windSpeed: hr.wind_kph / 3.6,
+            feelsLike: hr.feelslike_c,
+            unifiedCode: mapWeatherAPIToUnified(hr.condition.code),
+            precipitation: hr.precip_mm || 0
+          });
+        });
+      });
+      results.weatherApi.hourly = hourlyList;
       results.weatherApi.active = true;
     } catch (err) {
       results.weatherApi.error = err.message;
     }
   }
 
-  // Jika API Key tidak diset atau terjadi error, buat simulasi jika Open-Meteo berhasil
+  // Buat Simulasi WeatherAPI jika mati/tanpa key
   if (!results.weatherApi.active && results.openMeteo.data) {
-    results.weatherApi.data = generateSimulatedData(results.openMeteo.data, +0.6, -4, +0.8, 1);
+    results.weatherApi.data = generateSimulatedPoint(results.openMeteo.data, +0.6, -4, +0.8, 1);
+    if (results.openMeteo.hourly) {
+      results.weatherApi.hourly = results.openMeteo.hourly.map(p => ({
+        time: p.time,
+        ...generateSimulatedPoint(p, +0.6, -4, +0.8, 1)
+      }));
+    }
     results.weatherApi.active = true;
     results.weatherApi.simulated = true;
   }
 
-  // 3. Fetch OpenWeatherMap
+  // --- 3. FETCH OPENWEATHERMAP (Current + 5-day / 3-hour Forecast) ---
   if (openWeatherMapKey) {
     try {
-      const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
-      const res = await fetch(url, { next: { revalidate: 900 } });
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const data = await res.json();
+      // Current Weather
+      const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
+      const currentRes = await fetch(currentUrl, { next: { revalidate: 900 } });
+      if (!currentRes.ok) throw new Error(`HTTP error! status: ${currentRes.status}`);
+      const currentData = await currentRes.json();
+      
       results.openWeatherMap.data = {
-        temp: data.main.temp,
-        humidity: data.main.humidity,
-        windSpeed: data.wind.speed, // dalam m/s
-        feelsLike: data.main.feels_like,
-        unifiedCode: mapOWMToUnified(data.weather[0].id),
-        rawCode: data.weather[0].id,
-        precipitation: data.rain ? (data.rain['1h'] || 0) : 0
+        temp: currentData.main.temp,
+        humidity: currentData.main.humidity,
+        windSpeed: currentData.wind.speed,
+        feelsLike: currentData.main.feels_like,
+        unifiedCode: mapOWMToUnified(currentData.weather[0].id),
+        rawCode: currentData.weather[0].id,
+        precipitation: currentData.rain ? (currentData.rain['1h'] || 0) : 0
       };
+
+      // 3-hourly Forecast
+      const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
+      const forecastRes = await fetch(forecastUrl, { next: { revalidate: 900 } });
+      if (forecastRes.ok) {
+        const forecastData = await forecastRes.json();
+        results.openWeatherMap.hourly = forecastData.list.map(item => ({
+          time: item.dt * 1000,
+          temp: item.main.temp,
+          humidity: item.main.humidity,
+          windSpeed: item.wind.speed,
+          feelsLike: item.main.feels_like,
+          unifiedCode: mapOWMToUnified(item.weather[0].id),
+          precipitation: item.rain ? (item.rain['3h'] / 3 || 0) : 0 // Normalisasi per jam
+        }));
+      }
       results.openWeatherMap.active = true;
     } catch (err) {
       results.openWeatherMap.error = err.message;
     }
   }
 
-  // Jika API Key tidak diset atau terjadi error, buat simulasi jika Open-Meteo berhasil
+  // Buat Simulasi OpenWeatherMap jika mati/tanpa key
   if (!results.openWeatherMap.active && results.openMeteo.data) {
-    results.openWeatherMap.data = generateSimulatedData(results.openMeteo.data, -0.4, +3, -0.5, 0);
+    results.openWeatherMap.data = generateSimulatedPoint(results.openMeteo.data, -0.4, +3, -0.5, 0);
+    if (results.openMeteo.hourly) {
+      results.openWeatherMap.hourly = results.openMeteo.hourly.map(p => ({
+        time: p.time,
+        ...generateSimulatedPoint(p, -0.4, +3, -0.5, 0)
+      }));
+    }
     results.openWeatherMap.active = true;
     results.openWeatherMap.simulated = true;
   }
 
-  // Pastikan setidaknya satu API berhasil
   const activeApis = Object.values(results).filter(api => api.active && api.data !== null);
   
   if (activeApis.length === 0) {
-    return NextResponse.json({ error: 'Gagal mengambil data dari semua API cuaca dan tidak ada fallback data yang tersedia.' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal mengambil data cuaca.' }, { status: 500 });
   }
 
-  // --- KALKULASI ENSEMBLE ---
-  
-  // 1. Temperatur (Averages)
+  // --- KALKULASI ENSEMBLE SEKARANG ---
   const temps = activeApis.map(api => api.data.temp);
   const avgTemp = Math.round((temps.reduce((sum, val) => sum + val, 0) / temps.length) * 10) / 10;
   
-  // Hitung deviasi standar (Standard Deviation) untuk mengukur tingkat keyakinan (Confidence Score)
   const meanTemp = temps.reduce((sum, val) => sum + val, 0) / temps.length;
   const variance = temps.reduce((sum, val) => sum + Math.pow(val - meanTemp, 2), 0) / temps.length;
   const stdDev = Math.sqrt(variance);
 
-  // 2. Kelembapan (Average)
-  const humidities = activeApis.map(api => api.data.humidity);
-  const avgHumidity = Math.round(humidities.reduce((sum, val) => sum + val, 0) / humidities.length);
+  const avgHumidity = Math.round(activeApis.map(api => api.data.humidity).reduce((sum, val) => sum + val, 0) / activeApis.length);
+  const avgWindSpeed = Math.round((activeApis.map(api => api.data.windSpeed).reduce((sum, val) => sum + val, 0) / activeApis.length) * 10) / 10;
+  const avgFeelsLike = Math.round((activeApis.map(api => api.data.feelsLike).reduce((sum, val) => sum + val, 0) / activeApis.length) * 10) / 10;
+  const avgPrecipitation = Math.round((activeApis.map(api => api.data.precipitation).reduce((sum, val) => sum + val, 0) / activeApis.length) * 10) / 10;
 
-  // 3. Kecepatan Angin (Average)
-  const windSpeeds = activeApis.map(api => api.data.windSpeed);
-  const avgWindSpeed = Math.round((windSpeeds.reduce((sum, val) => sum + val, 0) / windSpeeds.length) * 10) / 10;
-
-  // 4. Feels Like (Average)
-  const feelsLikes = activeApis.map(api => api.data.feelsLike);
-  const avgFeelsLike = Math.round((feelsLikes.reduce((sum, val) => sum + val, 0) / feelsLikes.length) * 10) / 10;
-
-  // 5. Curah Hujan (Average)
-  const precipitations = activeApis.map(api => api.data.precipitation);
-  const avgPrecipitation = Math.round((precipitations.reduce((sum, val) => sum + val, 0) / precipitations.length) * 10) / 10;
-
-  // 6. Kondisi Cuaca (Voting Mayoritas)
+  // Voting Cuaca Sekarang
   const votes = {};
   activeApis.forEach(api => {
     const code = api.data.unifiedCode;
     votes[code] = (votes[code] || 0) + 1;
   });
-
-  // Tentukan pemenang voting
-  let consensusCode = 3; // Default Mendung
+  let consensusCode = 3;
   let maxVotes = 0;
-  
   Object.keys(votes).forEach(codeStr => {
     const code = parseInt(codeStr);
     const count = votes[code];
-    
     if (count > maxVotes) {
       maxVotes = count;
       consensusCode = code;
     } else if (count === maxVotes) {
-      // Jika terjadi tie, pilih kode yang memiliki prioritas cuaca lebih "buruk" agar pengguna waspada
       const priority = { 9: 9, 7: 8, 6: 7, 5: 6, 3: 5, 8: 4, 4: 3, 2: 2, 1: 1 };
-      if (priority[code] > priority[consensusCode]) {
-        consensusCode = code;
-      }
+      if (priority[code] > priority[consensusCode]) consensusCode = code;
     }
   });
 
-  // 7. Hitung Confidence Score (Indeks Keyakinan)
-  // Berdasarkan standar deviasi suhu dan konsensus voting
   let confidenceText = 'Sedang';
   let confidencePercentage = 70;
-
   if (activeApis.length === 1) {
     confidenceText = 'Cukup (Satu Sumber)';
     confidencePercentage = 50;
   } else {
     const isConditionUnanimous = Object.keys(votes).length === 1;
-
     if (stdDev < 0.8) {
       confidenceText = isConditionUnanimous ? 'Sangat Tinggi' : 'Tinggi';
       confidencePercentage = isConditionUnanimous ? 95 : 85;
@@ -275,11 +303,88 @@ export async function GET(request) {
     }
   }
 
-  // Ambil informasi cuaca konsensus
-  const consensusWeather = {
-    code: consensusCode,
-    ...UNIFIED_CUACA_INFO[consensusCode]
-  };
+  // --- PEMBUATAN PREDIKSI FORECAST PER 3 JAM (24 JAM KE DEPAN) ---
+  const forecastPoints = [];
+  const now = new Date();
+  
+  // Buat 8 titik target waktu: +3, +6, +9, +12, +15, +18, +21, +24 jam dari sekarang
+  for (let i = 1; i <= 8; i++) {
+    const targetTime = new Date(now.getTime() + i * 3 * 60 * 60 * 1000);
+    const targetTimestamp = targetTime.getTime();
+
+    // Temukan titik cuaca terdekat dari masing-masing API
+    const findClosestPoint = (hourlyList) => {
+      if (!hourlyList || hourlyList.length === 0) return null;
+      return hourlyList.reduce((prev, curr) => 
+        Math.abs(curr.time - targetTimestamp) < Math.abs(prev.time - targetTimestamp) ? curr : prev
+      );
+    };
+
+    const omPoint = findClosestPoint(results.openMeteo.hourly);
+    const waPoint = findClosestPoint(results.weatherApi.hourly);
+    const owmPoint = findClosestPoint(results.openWeatherMap.hourly);
+
+    // Ambil API yang aktif & memiliki titik data untuk waktu tersebut
+    const apisForPoint = [];
+    if (omPoint) apisForPoint.push({ name: 'openMeteo', data: omPoint });
+    if (waPoint) apisForPoint.push({ name: 'weatherApi', data: waPoint });
+    if (owmPoint) apisForPoint.push({ name: 'openWeatherMap', data: owmPoint });
+
+    if (apisForPoint.length > 0) {
+      const tempsAtPoint = apisForPoint.map(a => a.data.temp);
+      const avgTempAtPoint = Math.round((tempsAtPoint.reduce((sum, v) => sum + v, 0) / tempsAtPoint.length) * 10) / 10;
+      
+      const humiditiesAtPoint = apisForPoint.map(a => a.data.humidity);
+      const avgHumAtPoint = Math.round(humiditiesAtPoint.reduce((sum, v) => sum + v, 0) / humiditiesAtPoint.length);
+
+      const windSpeedsAtPoint = apisForPoint.map(a => a.data.windSpeed);
+      const avgWindAtPoint = Math.round((windSpeedsAtPoint.reduce((sum, v) => sum + v, 0) / windSpeedsAtPoint.length) * 10) / 10;
+
+      // Voting cuaca
+      const votesAtPoint = {};
+      apisForPoint.forEach(a => {
+        const code = a.data.unifiedCode;
+        votesAtPoint[code] = (votesAtPoint[code] || 0) + 1;
+      });
+      let consensusCodeAtPoint = 3;
+      let maxVotesAtPoint = 0;
+      Object.keys(votesAtPoint).forEach(codeStr => {
+        const code = parseInt(codeStr);
+        const count = votesAtPoint[code];
+        if (count > maxVotesAtPoint) {
+          maxVotesAtPoint = count;
+          consensusCodeAtPoint = code;
+        } else if (count === maxVotesAtPoint) {
+          const priority = { 9: 9, 7: 8, 6: 7, 5: 6, 3: 5, 8: 4, 4: 3, 2: 2, 1: 1 };
+          if (priority[code] > priority[consensusCodeAtPoint]) consensusCodeAtPoint = code;
+        }
+      });
+
+      // Format Jam dan Hari untuk Tampilan
+      const hourStr = targetTime.getHours().toString().padStart(2, '0') + ':00';
+      const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+      const dateStr = `${dayNames[targetTime.getDay()]}, ${targetTime.getDate()} ${monthNames[targetTime.getMonth()]}`;
+
+      forecastPoints.push({
+        time: targetTime.toISOString(),
+        displayTime: hourStr,
+        displayDate: dateStr,
+        temp: avgTempAtPoint,
+        humidity: avgHumAtPoint,
+        windSpeed: avgWindAtPoint,
+        weather: {
+          code: consensusCodeAtPoint,
+          ...UNIFIED_CUACA_INFO[consensusCodeAtPoint]
+        },
+        sources: {
+          openMeteo: omPoint ? { temp: omPoint.temp, code: omPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[omPoint.unifiedCode].icon } : null,
+          weatherApi: waPoint ? { temp: waPoint.temp, code: waPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[waPoint.unifiedCode].icon } : null,
+          openWeatherMap: owmPoint ? { temp: owmPoint.temp, code: owmPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[owmPoint.unifiedCode].icon } : null
+        }
+      });
+    }
+  }
 
   return NextResponse.json({
     city: cityName,
@@ -291,13 +396,17 @@ export async function GET(request) {
       windSpeed: avgWindSpeed,
       feelsLike: avgFeelsLike,
       precipitation: avgPrecipitation,
-      weather: consensusWeather,
+      weather: {
+        code: consensusCode,
+        ...UNIFIED_CUACA_INFO[consensusCode]
+      },
       confidence: {
         level: confidenceText,
         score: confidencePercentage,
         stdDev: Math.round(stdDev * 100) / 100
       }
     },
+    forecast: forecastPoints,
     sources: {
       openMeteo: {
         name: results.openMeteo.name,

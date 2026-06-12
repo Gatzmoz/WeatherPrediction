@@ -230,7 +230,10 @@ export default function Home() {
       {/* SKELETON LOADING STATE */}
       {loadingWeather && (
         <div className={styles.loadingGrid}>
-          <div className={`${styles.glassCard} ${styles.skeletonCard} ${styles.skeletonPulse}`}></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div className={`${styles.glassCard} ${styles.skeletonCard} ${styles.skeletonPulse}`}></div>
+            <div className={`${styles.glassCard} ${styles.skeletonPulse}`} style={{ height: '220px' }}></div>
+          </div>
           <div className={styles.skeletonRight}>
             <div className={`${styles.glassCard} ${styles.skeletonChart} ${styles.skeletonPulse}`}></div>
             <div className={styles.skeletonSources}>
@@ -263,98 +266,132 @@ export default function Home() {
           
           <div className={styles.mainGrid}>
             
-            {/* 1. Kartu Utama Konsensus Ensemble */}
-            <div className={`${styles.glassCard} ${styles.ensembleCard}`}>
-              <div className={styles.cardHeader}>
-                <div className={styles.locationTitle}>
-                  <MapPin size={20} style={{ color: 'var(--accent-color)' }} />
+            {/* 1. Kolom Kiri: Kartu Utama & Prediksi 24 Jam */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              {/* Kartu Utama Konsensus Ensemble */}
+              <div className={`${styles.glassCard} ${styles.ensembleCard}`}>
+                <div className={styles.cardHeader}>
+                  <div className={styles.locationTitle}>
+                    <MapPin size={20} style={{ color: 'var(--accent-color)' }} />
+                    <div>
+                      <div>{weatherData.city}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '0.1rem' }}>
+                        {selectedCity.country}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`${styles.confidenceBadge} ${getConfidenceClass(weatherData.ensemble.confidence.level)}`}>
+                    <Gauge size={14} />
+                    <span>Keyakinan: {weatherData.ensemble.confidence.level} ({weatherData.ensemble.confidence.score}%)</span>
+                  </div>
+                </div>
+
+                <div className={styles.weatherMain}>
+                  <div className={styles.weatherIconWrapper}>
+                    <WeatherIcon iconName={weatherData.ensemble.weather.icon} size={64} />
+                  </div>
                   <div>
-                    <div>{weatherData.city}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '0.1rem' }}>
-                      {selectedCity.country}
+                    <div className={styles.tempValue}>
+                      {weatherData.ensemble.temp}
+                      <span className={styles.tempDegree}>°C</span>
+                    </div>
+                    <div className={styles.weatherLabel}>
+                      {weatherData.ensemble.weather.label}
+                    </div>
+                    <div className={styles.feelsLike}>
+                      Terasa seperti {weatherData.ensemble.feelsLike}°C
                     </div>
                   </div>
                 </div>
 
-                <div className={`${styles.confidenceBadge} ${getConfidenceClass(weatherData.ensemble.confidence.level)}`}>
-                  <Gauge size={14} />
-                  <span>Keyakinan: {weatherData.ensemble.confidence.level} ({weatherData.ensemble.confidence.score}%)</span>
+                {/* Deviasi Standar */}
+                {weatherData.ensemble.confidence.stdDev !== undefined && (
+                  <div className={styles.stdDevIndicator}>
+                    <AlertTriangle size={15} style={{ color: weatherData.ensemble.confidence.stdDev > 2 ? '#fbbf24' : '#34d399' }} />
+                    <span>
+                      Deviasi suhu antar API: <strong className={styles.stdDevValue}>{weatherData.ensemble.confidence.stdDev}°C</strong>
+                      {weatherData.ensemble.confidence.stdDev < 1.0 
+                        ? ' (Konsensus sangat sejalan)' 
+                        : weatherData.ensemble.confidence.stdDev > 2.5 
+                        ? ' (Tingkat ketidakpastian tinggi)' 
+                        : ' (Konsensus wajar)'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Grid Detail Nilai Cuaca */}
+                <div className={styles.detailsGrid}>
+                  <div className={styles.detailItem}>
+                    <div className={styles.detailIcon}>
+                      <Percent size={18} />
+                    </div>
+                    <div className={styles.detailValueGroup}>
+                      <span className={styles.detailValue}>{weatherData.ensemble.humidity}%</span>
+                      <span className={styles.detailLabel}>Kelembapan</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.detailItem}>
+                    <div className={styles.detailIcon}>
+                      <Wind size={18} />
+                    </div>
+                    <div className={styles.detailValueGroup}>
+                      <span className={styles.detailValue}>{weatherData.ensemble.windSpeed} m/s</span>
+                      <span className={styles.detailLabel}>Kecepatan Angin</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.detailItem}>
+                    <div className={styles.detailIcon}>
+                      <Thermometer size={18} />
+                    </div>
+                    <div className={styles.detailValueGroup}>
+                      <span className={styles.detailValue}>{weatherData.ensemble.feelsLike}°C</span>
+                      <span className={styles.detailLabel}>Sensasi Termal</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.detailItem}>
+                    <div className={styles.detailIcon}>
+                      <Droplets size={18} />
+                    </div>
+                    <div className={styles.detailValueGroup}>
+                      <span className={styles.detailValue}>{weatherData.ensemble.precipitation} mm</span>
+                      <span className={styles.detailLabel}>Curah Hujan</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className={styles.weatherMain}>
-                <div className={styles.weatherIconWrapper}>
-                  <WeatherIcon iconName={weatherData.ensemble.weather.icon} size={64} />
-                </div>
-                <div>
-                  <div className={styles.tempValue}>
-                    {weatherData.ensemble.temp}
-                    <span className={styles.tempDegree}>°C</span>
-                  </div>
-                  <div className={styles.weatherLabel}>
-                    {weatherData.ensemble.weather.label}
-                  </div>
-                  <div className={styles.feelsLike}>
-                    Terasa seperti {weatherData.ensemble.feelsLike}°C
-                  </div>
-                </div>
-              </div>
-
-              {/* Deviasi Standar */}
-              {weatherData.ensemble.confidence.stdDev !== undefined && (
-                <div className={styles.stdDevIndicator}>
-                  <AlertTriangle size={15} style={{ color: weatherData.ensemble.confidence.stdDev > 2 ? '#fbbf24' : '#34d399' }} />
-                  <span>
-                    Deviasi suhu antar API: <strong className={styles.stdDevValue}>{weatherData.ensemble.confidence.stdDev}°C</strong>
-                    {weatherData.ensemble.confidence.stdDev < 1.0 
-                      ? ' (Konsensus sangat sejalan)' 
-                      : weatherData.ensemble.confidence.stdDev > 2.5 
-                      ? ' (Tingkat ketidakpastian tinggi)' 
-                      : ' (Konsensus wajar)'}
-                  </span>
-                </div>
-              )}
-
-              {/* Grid Detail Nilai Cuaca */}
-              <div className={styles.detailsGrid}>
-                <div className={styles.detailItem}>
-                  <div className={styles.detailIcon}>
-                    <Percent size={18} />
-                  </div>
-                  <div className={styles.detailValueGroup}>
-                    <span className={styles.detailValue}>{weatherData.ensemble.humidity}%</span>
-                    <span className={styles.detailLabel}>Kelembapan</span>
-                  </div>
-                </div>
-
-                <div className={styles.detailItem}>
-                  <div className={styles.detailIcon}>
-                    <Wind size={18} />
-                  </div>
-                  <div className={styles.detailValueGroup}>
-                    <span className={styles.detailValue}>{weatherData.ensemble.windSpeed} m/s</span>
-                    <span className={styles.detailLabel}>Kecepatan Angin</span>
-                  </div>
-                </div>
-
-                <div className={styles.detailItem}>
-                  <div className={styles.detailIcon}>
-                    <Thermometer size={18} />
-                  </div>
-                  <div className={styles.detailValueGroup}>
-                    <span className={styles.detailValue}>{weatherData.ensemble.feelsLike}°C</span>
-                    <span className={styles.detailLabel}>Sensasi Termal</span>
-                  </div>
-                </div>
-
-                <div className={styles.detailItem}>
-                  <div className={styles.detailIcon}>
-                    <Droplets size={18} />
-                  </div>
-                  <div className={styles.detailValueGroup}>
-                    <span className={styles.detailValue}>{weatherData.ensemble.precipitation} mm</span>
-                    <span className={styles.detailLabel}>Curah Hujan</span>
-                  </div>
+              {/* Widget Prediksi 3-Jam selama 24 Jam */}
+              <div className={`${styles.glassCard} ${styles.forecastSection}`}>
+                <h3 className={styles.sectionTitle} style={{ marginBottom: '0.5rem' }}>
+                  <WeatherIcon iconName="CloudSun" size={18} style={{ color: 'var(--accent-color)', marginRight: '0.25rem' }} />
+                  Prediksi 24 Jam ke Depan (Per 3 Jam)
+                </h3>
+                <div className={styles.forecastList}>
+                  {weatherData.forecast && weatherData.forecast.map((fc, idx) => (
+                    <div key={idx} className={styles.forecastCard}>
+                      <span className={styles.forecastTime}>{fc.displayTime}</span>
+                      <span className={styles.forecastDate}>{fc.displayDate}</span>
+                      <div className={styles.forecastIconWrapper}>
+                        <WeatherIcon iconName={fc.weather.icon} size={28} />
+                      </div>
+                      <span className={styles.forecastTemp}>{fc.temp}°C</span>
+                      
+                      <div className={styles.forecastMeta}>
+                        <div className={styles.forecastMetaItem}>
+                          <Droplets size={10} />
+                          <span>{fc.humidity}%</span>
+                        </div>
+                        <div className={styles.forecastMetaItem}>
+                          <Wind size={10} />
+                          <span>{fc.windSpeed} m/s</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
