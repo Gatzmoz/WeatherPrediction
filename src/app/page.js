@@ -263,10 +263,9 @@ export default function Home() {
       {/* MAIN CONTENT DASHBOARD */}
       {!loadingWeather && !weatherError && weatherData && (
         <main className={`${styles.dashboard} animate-fade-in`}>
-          
-          <div className={styles.mainGrid}>
+                   <div className={styles.mainGrid}>
             
-            {/* 1. Kolom Kiri: Kartu Utama & Prediksi 24 Jam */}
+            {/* 1. Kolom Kiri: Kartu Utama, Prediksi 24 Jam, & Panel API Sumber */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
               {/* Kartu Utama Konsensus Ensemble */}
               <div className={`${styles.glassCard} ${styles.ensembleCard}`}>
@@ -394,13 +393,7 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* 2. Grafik Perbandingan & Panel API Sumber */}
-            <div className={styles.sourcesSection}>
-              {/* Grafik */}
-              <EnsembleChart data={weatherData} />
-              
               {/* Grid perbandingan data per API */}
               <div className={styles.glassCard}>
                 <h3 className={styles.sectionTitle} style={{ marginBottom: '1.25rem' }}>
@@ -444,7 +437,9 @@ export default function Home() {
                               </div>
                               <div className={styles.sourceDetailItem}>
                                 <span>Angin:</span>
-                                <span className={styles.sourceDetailVal}>{src.windSpeed} m/s</span>
+                                <span className={styles.sourceDetailVal}>
+                                  {src.windSpeed !== null ? (Math.round(src.windSpeed * 10) / 10) : '-'} m/s
+                                </span>
                               </div>
                             </div>
                           </>
@@ -454,7 +449,12 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+            </div>
 
+            {/* 2. Grafik Perbandingan */}
+            <div className={styles.sourcesSection}>
+              {/* Grafik */}
+              <EnsembleChart data={weatherData} />
             </div>
 
           </div>

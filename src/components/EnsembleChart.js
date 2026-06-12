@@ -11,7 +11,10 @@ export default function EnsembleChart({ data }) {
   const sources = [
     { key: 'openMeteo', name: 'Open-Meteo', color: '#38bdf8' },
     { key: 'weatherApi', name: 'WeatherAPI', color: '#fbbf24' },
-    { key: 'openWeatherMap', name: 'OpenWeatherMap', color: '#c084fc' }
+    { key: 'openWeatherMap', name: 'OpenWeatherMap', color: '#c084fc' },
+    { key: 'gfs', name: 'GFS (NOAA)', color: '#ec4899' },
+    { key: 'ecmwf', name: 'ECMWF (Europe)', color: '#f97316' },
+    { key: 'icon', name: 'ICON (DWD)', color: '#06b6d4' }
   ];
 
   // Ekstrak data untuk grafik
@@ -187,7 +190,7 @@ export default function EnsembleChart({ data }) {
             const x = getX(index);
             const y = getBarY(val);
             const barHeight = Math.max(getBarHeight(val), 2); // Tinggi minimal 2px agar kelihatan
-            const barWidth = 36;
+            const barWidth = 22;
 
             return (
               <g key={item.name} style={{ transition: 'all 0.5s ease' }}>
@@ -221,7 +224,7 @@ export default function EnsembleChart({ data }) {
                   x={x}
                   y={svgHeight - 15}
                   fill={index === allItems.length - 1 ? '#34d399' : 'var(--text-secondary)'}
-                  fontSize="9.5"
+                  fontSize="8"
                   fontWeight={index === allItems.length - 1 ? '700' : '500'}
                   textAnchor="middle"
                 >

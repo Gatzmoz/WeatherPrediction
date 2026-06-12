@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// Pemetaan WMO Code (Open-Meteo) ke Unified Code
+// Pemetaan WMO Code (Open-Meteo, GFS, ECMWF, ICON) ke Unified Code
 function mapWMOToUnified(code) {
   if (code === 0) return 1; // Clear sky
   if (code >= 1 && code <= 3) return 2; // Mainly clear, partly cloudy, and overcast
@@ -70,42 +70,11 @@ export async function GET(request) {
   const results = {
     openMeteo: { name: 'Open-Meteo', active: false, simulated: false, data: null, hourly: null, error: null },
     weatherApi: { name: 'WeatherAPI', active: false, simulated: false, data: null, hourly: null, error: null },
-    openWeatherMap: { name: 'OpenWeatherMap', active: false, simulated: false, data: null, hourly: null, error: null }
+    openWeatherMap: { name: 'OpenWeatherMap', active: false, simulated: false, data: null, hourly: null, error: null },
+    gfs: { name: 'GFS (NOAA)', active: false, simulated: false, data: null, hourly: null, error: null },
+    ecmwf: { name: 'ECMWF (Europe)', active: false, simulated: false, data: null, hourly: null, error: null },
+    icon: { name: 'ICON (DWD)', active: false, simulated: false, data: null, hourly: null, error: null }
   };
-
-  // --- 1. FETCH OPEN-METEO (Current + Hourly) ---
-  try {
-    const openMeteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
-    const res = await fetch(openMeteoUrl, { next: { revalidate: 900 } });
-    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-    const data = await res.json();
-    
-    results.openMeteo.data = {
-      temp: data.current.temperature_2m,
-      humidity: data.current.relative_humidity_2m,
-      windSpeed: data.current.wind_speed_10m,
-      feelsLike: data.current.apparent_temperature,
-      unifiedCode: mapWMOToUnified(data.current.weather_code),
-      rawCode: data.current.weather_code,
-      precipitation: data.current.precipitation || 0
-    };
-
-    // Parse Hourly
-    if (data.hourly) {
-      results.openMeteo.hourly = data.hourly.time.map((timeStr, idx) => ({
-        time: new Date(timeStr).getTime(),
-        temp: data.hourly.temperature_2m[idx],
-        humidity: data.hourly.relative_humidity_2m[idx],
-        windSpeed: data.hourly.wind_speed_10m[idx],
-        feelsLike: data.hourly.apparent_temperature[idx],
-        unifiedCode: mapWMOToUnified(data.hourly.weather_code[idx]),
-        precipitation: data.hourly.precipitation[idx] || 0
-      }));
-    }
-    results.openMeteo.active = true;
-  } catch (err) {
-    results.openMeteo.error = err.message;
-  }
 
   // Helper deviasi acak simulasi
   const generateSimulatedPoint = (basePoint, tempOffset, humidityOffset, windOffset, codeOffset) => {
@@ -136,47 +105,217 @@ export async function GET(request) {
     };
   };
 
-  // --- 2. FETCH WEATHERAPI (Current + Forecast) ---
-  if (weatherApiKey) {
-    try {
-      const url = `https://api.weatherapi.com/v1/forecast.json?key=${weatherApiKey}&q=${lat},${lon}&days=2`;
-      const res = await fetch(url, { next: { revalidate: 900 } });
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const data = await res.json();
-      
-      results.weatherApi.data = {
-        temp: data.current.temp_c,
-        humidity: data.current.humidity,
-        windSpeed: data.current.wind_kph / 3.6,
-        feelsLike: data.current.feelslike_c,
-        unifiedCode: mapWeatherAPIToUnified(data.current.condition.code),
-        rawCode: data.current.condition.code,
-        precipitation: data.current.precip_mm || 0
-      };
+  // --- PARALLEL FETCH UNTUK SEMUA API DAN MODEL ---
+  await Promise.all([
+    // 1. Open-Meteo
+    (async () => {
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+        const res = await fetch(url, { next: { revalidate: 900 } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        results.openMeteo.data = {
+          temp: data.current.temperature_2m,
+          humidity: data.current.relative_humidity_2m,
+          windSpeed: data.current.wind_speed_10m,
+          feelsLike: data.current.apparent_temperature,
+          unifiedCode: mapWMOToUnified(data.current.weather_code),
+          rawCode: data.current.weather_code,
+          precipitation: data.current.precipitation || 0
+        };
+        if (data.hourly) {
+          results.openMeteo.hourly = data.hourly.time.map((t, idx) => ({
+            time: new Date(t).getTime(),
+            temp: data.hourly.temperature_2m[idx],
+            humidity: data.hourly.relative_humidity_2m[idx],
+            windSpeed: data.hourly.wind_speed_10m[idx],
+            feelsLike: data.hourly.apparent_temperature[idx],
+            unifiedCode: mapWMOToUnified(data.hourly.weather_code[idx]),
+            precipitation: data.hourly.precipitation[idx] || 0
+          }));
+        }
+        results.openMeteo.active = true;
+      } catch (err) {
+        results.openMeteo.error = err.message;
+      }
+    })(),
 
-      // Parse Hourly
-      const hourlyList = [];
-      data.forecast.forecastday.forEach(day => {
-        day.hour.forEach(hr => {
-          hourlyList.push({
-            time: hr.time_epoch * 1000,
-            temp: hr.temp_c,
-            humidity: hr.humidity,
-            windSpeed: hr.wind_kph / 3.6,
-            feelsLike: hr.feelslike_c,
-            unifiedCode: mapWeatherAPIToUnified(hr.condition.code),
-            precipitation: hr.precip_mm || 0
+    // 2. WeatherAPI (Kunci API)
+    (async () => {
+      if (!weatherApiKey) return;
+      try {
+        const url = `https://api.weatherapi.com/v1/forecast.json?key=${weatherApiKey}&q=${lat},${lon}&days=2`;
+        const res = await fetch(url, { next: { revalidate: 900 } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        results.weatherApi.data = {
+          temp: data.current.temp_c,
+          humidity: data.current.humidity,
+          windSpeed: data.current.wind_kph / 3.6,
+          feelsLike: data.current.feelslike_c,
+          unifiedCode: mapWeatherAPIToUnified(data.current.condition.code),
+          rawCode: data.current.condition.code,
+          precipitation: data.current.precip_mm || 0
+        };
+        const hourlyList = [];
+        data.forecast.forecastday.forEach(day => {
+          day.hour.forEach(hr => {
+            hourlyList.push({
+              time: hr.time_epoch * 1000,
+              temp: hr.temp_c,
+              humidity: hr.humidity,
+              windSpeed: hr.wind_kph / 3.6,
+              feelsLike: hr.feelslike_c,
+              unifiedCode: mapWeatherAPIToUnified(hr.condition.code),
+              precipitation: hr.precip_mm || 0
+            });
           });
         });
-      });
-      results.weatherApi.hourly = hourlyList;
-      results.weatherApi.active = true;
-    } catch (err) {
-      results.weatherApi.error = err.message;
-    }
-  }
+        results.weatherApi.hourly = hourlyList;
+        results.weatherApi.active = true;
+      } catch (err) {
+        results.weatherApi.error = err.message;
+      }
+    })(),
 
-  // Buat Simulasi WeatherAPI jika mati/tanpa key
+    // 3. OpenWeatherMap (Kunci API)
+    (async () => {
+      if (!openWeatherMapKey) return;
+      try {
+        const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
+        const currentRes = await fetch(currentUrl, { next: { revalidate: 900 } });
+        if (!currentRes.ok) throw new Error(`HTTP ${currentRes.status}`);
+        const currentData = await currentRes.json();
+        results.openWeatherMap.data = {
+          temp: currentData.main.temp,
+          humidity: currentData.main.humidity,
+          windSpeed: currentData.wind.speed,
+          feelsLike: currentData.main.feels_like,
+          unifiedCode: mapOWMToUnified(currentData.weather[0].id),
+          rawCode: currentData.weather[0].id,
+          precipitation: currentData.rain ? (currentData.rain['1h'] || 0) : 0
+        };
+        const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
+        const forecastRes = await fetch(forecastUrl, { next: { revalidate: 900 } });
+        if (forecastRes.ok) {
+          const forecastData = await forecastRes.json();
+          results.openWeatherMap.hourly = forecastData.list.map(item => ({
+            time: item.dt * 1000,
+            temp: item.main.temp,
+            humidity: item.main.humidity,
+            windSpeed: item.wind.speed,
+            feelsLike: item.main.feels_like,
+            unifiedCode: mapOWMToUnified(item.weather[0].id),
+            precipitation: item.rain ? (item.rain['3h'] / 3 || 0) : 0
+          }));
+        }
+        results.openWeatherMap.active = true;
+      } catch (err) {
+        results.openWeatherMap.error = err.message;
+      }
+    })(),
+
+    // 4. GFS (NOAA Model)
+    (async () => {
+      try {
+        const url = `https://api.open-meteo.com/v1/gfs?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+        const res = await fetch(url, { next: { revalidate: 900 } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        results.gfs.data = {
+          temp: data.current.temperature_2m,
+          humidity: data.current.relative_humidity_2m,
+          windSpeed: data.current.wind_speed_10m,
+          feelsLike: data.current.apparent_temperature,
+          unifiedCode: mapWMOToUnified(data.current.weather_code),
+          rawCode: data.current.weather_code,
+          precipitation: data.current.precipitation || 0
+        };
+        if (data.hourly) {
+          results.gfs.hourly = data.hourly.time.map((t, idx) => ({
+            time: new Date(t).getTime(),
+            temp: data.hourly.temperature_2m[idx],
+            humidity: data.hourly.relative_humidity_2m[idx],
+            windSpeed: data.hourly.wind_speed_10m[idx],
+            feelsLike: data.hourly.apparent_temperature[idx],
+            unifiedCode: mapWMOToUnified(data.hourly.weather_code[idx]),
+            precipitation: data.hourly.precipitation[idx] || 0
+          }));
+        }
+        results.gfs.active = true;
+      } catch (err) {
+        results.gfs.error = err.message;
+      }
+    })(),
+
+    // 5. ECMWF (Europe Model)
+    (async () => {
+      try {
+        const url = `https://api.open-meteo.com/v1/ecmwf?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+        const res = await fetch(url, { next: { revalidate: 900 } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        results.ecmwf.data = {
+          temp: data.current.temperature_2m,
+          humidity: data.current.relative_humidity_2m,
+          windSpeed: data.current.wind_speed_10m,
+          feelsLike: data.current.apparent_temperature,
+          unifiedCode: mapWMOToUnified(data.current.weather_code),
+          rawCode: data.current.weather_code,
+          precipitation: data.current.precipitation || 0
+        };
+        if (data.hourly) {
+          results.ecmwf.hourly = data.hourly.time.map((t, idx) => ({
+            time: new Date(t).getTime(),
+            temp: data.hourly.temperature_2m[idx],
+            humidity: data.hourly.relative_humidity_2m[idx],
+            windSpeed: data.hourly.wind_speed_10m[idx],
+            feelsLike: data.hourly.apparent_temperature[idx],
+            unifiedCode: mapWMOToUnified(data.hourly.weather_code[idx]),
+            precipitation: data.hourly.precipitation[idx] || 0
+          }));
+        }
+        results.ecmwf.active = true;
+      } catch (err) {
+        results.ecmwf.error = err.message;
+      }
+    })(),
+
+    // 6. ICON (German DWD Model)
+    (async () => {
+      try {
+        const url = `https://api.open-meteo.com/v1/dwd-icon?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+        const res = await fetch(url, { next: { revalidate: 900 } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        results.icon.data = {
+          temp: data.current.temperature_2m,
+          humidity: data.current.relative_humidity_2m,
+          windSpeed: data.current.wind_speed_10m,
+          feelsLike: data.current.apparent_temperature,
+          unifiedCode: mapWMOToUnified(data.current.weather_code),
+          rawCode: data.current.weather_code,
+          precipitation: data.current.precipitation || 0
+        };
+        if (data.hourly) {
+          results.icon.hourly = data.hourly.time.map((t, idx) => ({
+            time: new Date(t).getTime(),
+            temp: data.hourly.temperature_2m[idx],
+            humidity: data.hourly.relative_humidity_2m[idx],
+            windSpeed: data.hourly.wind_speed_10m[idx],
+            feelsLike: data.hourly.apparent_temperature[idx],
+            unifiedCode: mapWMOToUnified(data.hourly.weather_code[idx]),
+            precipitation: data.hourly.precipitation[idx] || 0
+          }));
+        }
+        results.icon.active = true;
+      } catch (err) {
+        results.icon.error = err.message;
+      }
+    })()
+  ]);
+
+  // Fallback Simulasi jika WeatherAPI atau OpenWeatherMap tidak aktif
   if (!results.weatherApi.active && results.openMeteo.data) {
     results.weatherApi.data = generateSimulatedPoint(results.openMeteo.data, +0.6, -4, +0.8, 1);
     if (results.openMeteo.hourly) {
@@ -189,47 +328,6 @@ export async function GET(request) {
     results.weatherApi.simulated = true;
   }
 
-  // --- 3. FETCH OPENWEATHERMAP (Current + 5-day / 3-hour Forecast) ---
-  if (openWeatherMapKey) {
-    try {
-      // Current Weather
-      const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
-      const currentRes = await fetch(currentUrl, { next: { revalidate: 900 } });
-      if (!currentRes.ok) throw new Error(`HTTP error! status: ${currentRes.status}`);
-      const currentData = await currentRes.json();
-      
-      results.openWeatherMap.data = {
-        temp: currentData.main.temp,
-        humidity: currentData.main.humidity,
-        windSpeed: currentData.wind.speed,
-        feelsLike: currentData.main.feels_like,
-        unifiedCode: mapOWMToUnified(currentData.weather[0].id),
-        rawCode: currentData.weather[0].id,
-        precipitation: currentData.rain ? (currentData.rain['1h'] || 0) : 0
-      };
-
-      // 3-hourly Forecast
-      const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
-      const forecastRes = await fetch(forecastUrl, { next: { revalidate: 900 } });
-      if (forecastRes.ok) {
-        const forecastData = await forecastRes.json();
-        results.openWeatherMap.hourly = forecastData.list.map(item => ({
-          time: item.dt * 1000,
-          temp: item.main.temp,
-          humidity: item.main.humidity,
-          windSpeed: item.wind.speed,
-          feelsLike: item.main.feels_like,
-          unifiedCode: mapOWMToUnified(item.weather[0].id),
-          precipitation: item.rain ? (item.rain['3h'] / 3 || 0) : 0 // Normalisasi per jam
-        }));
-      }
-      results.openWeatherMap.active = true;
-    } catch (err) {
-      results.openWeatherMap.error = err.message;
-    }
-  }
-
-  // Buat Simulasi OpenWeatherMap jika mati/tanpa key
   if (!results.openWeatherMap.active && results.openMeteo.data) {
     results.openWeatherMap.data = generateSimulatedPoint(results.openMeteo.data, -0.4, +3, -0.5, 0);
     if (results.openMeteo.hourly) {
@@ -242,13 +340,14 @@ export async function GET(request) {
     results.openWeatherMap.simulated = true;
   }
 
+  // Cari API/Model yang berhasil dimuat
   const activeApis = Object.values(results).filter(api => api.active && api.data !== null);
   
   if (activeApis.length === 0) {
-    return NextResponse.json({ error: 'Gagal mengambil data cuaca.' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal mengambil data cuaca dari semua sumber.' }, { status: 500 });
   }
 
-  // --- KALKULASI ENSEMBLE SEKARANG ---
+  // --- KALKULASI ENSEMBLE KONSENSUS SEKARANG ---
   const temps = activeApis.map(api => api.data.temp);
   const avgTemp = Math.round((temps.reduce((sum, val) => sum + val, 0) / temps.length) * 10) / 10;
   
@@ -307,12 +406,10 @@ export async function GET(request) {
   const forecastPoints = [];
   const now = new Date();
   
-  // Buat 8 titik target waktu: +3, +6, +9, +12, +15, +18, +21, +24 jam dari sekarang
   for (let i = 1; i <= 8; i++) {
     const targetTime = new Date(now.getTime() + i * 3 * 60 * 60 * 1000);
     const targetTimestamp = targetTime.getTime();
 
-    // Temukan titik cuaca terdekat dari masing-masing API
     const findClosestPoint = (hourlyList) => {
       if (!hourlyList || hourlyList.length === 0) return null;
       return hourlyList.reduce((prev, curr) => 
@@ -323,12 +420,17 @@ export async function GET(request) {
     const omPoint = findClosestPoint(results.openMeteo.hourly);
     const waPoint = findClosestPoint(results.weatherApi.hourly);
     const owmPoint = findClosestPoint(results.openWeatherMap.hourly);
+    const gfsPoint = findClosestPoint(results.gfs.hourly);
+    const ecmwfPoint = findClosestPoint(results.ecmwf.hourly);
+    const iconPoint = findClosestPoint(results.icon.hourly);
 
-    // Ambil API yang aktif & memiliki titik data untuk waktu tersebut
     const apisForPoint = [];
     if (omPoint) apisForPoint.push({ name: 'openMeteo', data: omPoint });
     if (waPoint) apisForPoint.push({ name: 'weatherApi', data: waPoint });
     if (owmPoint) apisForPoint.push({ name: 'openWeatherMap', data: owmPoint });
+    if (gfsPoint) apisForPoint.push({ name: 'gfs', data: gfsPoint });
+    if (ecmwfPoint) apisForPoint.push({ name: 'ecmwf', data: ecmwfPoint });
+    if (iconPoint) apisForPoint.push({ name: 'icon', data: iconPoint });
 
     if (apisForPoint.length > 0) {
       const tempsAtPoint = apisForPoint.map(a => a.data.temp);
@@ -360,7 +462,6 @@ export async function GET(request) {
         }
       });
 
-      // Format Jam dan Hari untuk Tampilan
       const hourStr = targetTime.getHours().toString().padStart(2, '0') + ':00';
       const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -380,7 +481,10 @@ export async function GET(request) {
         sources: {
           openMeteo: omPoint ? { temp: omPoint.temp, code: omPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[omPoint.unifiedCode].icon } : null,
           weatherApi: waPoint ? { temp: waPoint.temp, code: waPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[waPoint.unifiedCode].icon } : null,
-          openWeatherMap: owmPoint ? { temp: owmPoint.temp, code: owmPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[owmPoint.unifiedCode].icon } : null
+          openWeatherMap: owmPoint ? { temp: owmPoint.temp, code: owmPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[owmPoint.unifiedCode].icon } : null,
+          gfs: gfsPoint ? { temp: gfsPoint.temp, code: gfsPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[gfsPoint.unifiedCode].icon } : null,
+          ecmwf: ecmwfPoint ? { temp: ecmwfPoint.temp, code: ecmwfPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[ecmwfPoint.unifiedCode].icon } : null,
+          icon: iconPoint ? { temp: iconPoint.temp, code: iconPoint.unifiedCode, icon: UNIFIED_CUACA_INFO[iconPoint.unifiedCode].icon } : null
         }
       });
     }
@@ -437,6 +541,36 @@ export async function GET(request) {
         windSpeed: results.openWeatherMap.data?.windSpeed || null,
         weather: results.openWeatherMap.data ? { code: results.openWeatherMap.data.unifiedCode, ...UNIFIED_CUACA_INFO[results.openWeatherMap.data.unifiedCode] } : null,
         error: results.openWeatherMap.error
+      },
+      gfs: {
+        name: results.gfs.name,
+        active: results.gfs.active,
+        simulated: results.gfs.simulated,
+        temp: results.gfs.data?.temp || null,
+        humidity: results.gfs.data?.humidity || null,
+        windSpeed: results.gfs.data?.windSpeed || null,
+        weather: results.gfs.data ? { code: results.gfs.data.unifiedCode, ...UNIFIED_CUACA_INFO[results.gfs.data.unifiedCode] } : null,
+        error: results.gfs.error
+      },
+      ecmwf: {
+        name: results.ecmwf.name,
+        active: results.ecmwf.active,
+        simulated: results.ecmwf.simulated,
+        temp: results.ecmwf.data?.temp || null,
+        humidity: results.ecmwf.data?.humidity || null,
+        windSpeed: results.ecmwf.data?.windSpeed || null,
+        weather: results.ecmwf.data ? { code: results.ecmwf.data.unifiedCode, ...UNIFIED_CUACA_INFO[results.ecmwf.data.unifiedCode] } : null,
+        error: results.ecmwf.error
+      },
+      icon: {
+        name: results.icon.name,
+        active: results.icon.active,
+        simulated: results.icon.simulated,
+        temp: results.icon.data?.temp || null,
+        humidity: results.icon.data?.humidity || null,
+        windSpeed: results.icon.data?.windSpeed || null,
+        weather: results.icon.data ? { code: results.icon.data.unifiedCode, ...UNIFIED_CUACA_INFO[results.icon.data.unifiedCode] } : null,
+        error: results.icon.error
       }
     }
   });
