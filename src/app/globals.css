@@ -1,0 +1,119 @@
+:root {
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+
+  /* Global Colors */
+  --bg-primary: #0a0e17;
+  --bg-card: rgba(30, 41, 59, 0.45);
+  --bg-card-hover: rgba(30, 41, 59, 0.6);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-color: #38bdf8;
+  --accent-color-rgb: 56, 189, 248;
+
+  /* Weather Themes (Gradients) */
+  --theme-sunny: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #f59e0b 100%);
+  --theme-partly-cloudy: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #38bdf8 100%);
+  --theme-cloudy: linear-gradient(135deg, #090d16 0%, #1e293b 70%, #475569 100%);
+  --theme-foggy: linear-gradient(135deg, #090d16 0%, #1e293b 70%, #64748b 100%);
+  --theme-drizzle: linear-gradient(135deg, #090d16 0%, #0f172a 60%, #0d9488 100%);
+  --theme-rainy: linear-gradient(135deg, #080c14 0%, #0f172a 60%, #2563eb 100%);
+  --theme-heavy-rain: linear-gradient(135deg, #05070c 0%, #0f172a 70%, #1d4ed8 100%);
+  --theme-snowy: linear-gradient(135deg, #0f172a 0%, #334155 60%, #cbd5e1 100%);
+  --theme-thunderstorm: linear-gradient(135deg, #05070c 0%, #1e1b4b 60%, #7c3aed 100%);
+
+  --active-theme: var(--theme-partly-cloudy);
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--active-theme);
+  z-index: -2;
+  transition: background 1.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 50% 120%, rgba(15, 23, 42, 0) 0%, rgba(10, 14, 23, 0.95) 80%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(10, 14, 23, 0.3);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse {
+  animation: pulse 2s infinite ease-in-out;
+}
