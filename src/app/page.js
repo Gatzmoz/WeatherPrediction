@@ -402,9 +402,9 @@ export default function Home() {
               <EnsembleChart data={weatherData} />
               
               {/* Grid perbandingan data per API */}
-              <div>
-                <h3 className={styles.sectionTitle}>
-                  <MapPin size={18} style={{ color: 'var(--accent-color)' }} />
+              <div className={styles.glassCard}>
+                <h3 className={styles.sectionTitle} style={{ marginBottom: '1.25rem' }}>
+                  <MapPin size={18} style={{ color: 'var(--accent-color)', marginRight: '0.25rem' }} />
                   Data Berdasarkan Sumber API
                 </h3>
                 <div className={styles.sourcesGrid}>
