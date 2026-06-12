@@ -70,7 +70,7 @@
 
 .searchInput {
   width: 100%;
-  padding: 1.1rem 3rem 1.1rem 3.25rem;
+  padding: 1.1rem 4.75rem 1.1rem 3.25rem;
   font-size: 1rem;
   font-weight: 500;
   color: var(--text-primary);
@@ -78,9 +78,30 @@
   border: 1px solid var(--border-color);
   border-radius: 9999px;
   outline: none;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gpsButton {
+  position: absolute;
+  background: none;
+  border: none;
+  color: var(--accent-color);
+  cursor: pointer;
+  padding: 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease, right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gpsButton:hover {
+  background: rgba(56, 189, 248, 0.1);
+  transform: scale(1.1);
+  color: var(--text-primary);
 }
 
 .searchInput:focus {
@@ -123,6 +144,7 @@
   border-radius: 1.25rem;
   overflow: hidden;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
@@ -209,6 +231,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 1.75rem;
+  -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   padding: 2rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
@@ -655,6 +678,7 @@
   width: 100%;
   scrollbar-width: thin;
   scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
 }
 
 .forecastCard {
@@ -669,6 +693,7 @@
   gap: 0.75rem;
   text-align: center;
   transition: all 0.25s ease;
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
@@ -749,7 +774,9 @@
   margin-top: 1rem;
   background: rgba(15, 23, 42, 0.3);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  -webkit-overflow-scrolling: touch;
 }
 
 .table {
@@ -851,6 +878,7 @@
   border: 1px solid var(--border-color);
   border-radius: 1.25rem;
   padding: 1.25rem;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: 0 4px 25px rgba(0, 0, 0, 0.2);
 }
@@ -898,6 +926,7 @@
   border-radius: 0.75rem;
   outline: none;
   cursor: pointer;
+  -webkit-appearance: none;
   appearance: none;
   transition: all 0.2s ease;
   overflow: hidden;
@@ -973,6 +1002,52 @@
 
 .suggestionBadge {
   transition: all 0.2s ease;
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 1.25rem 0.75rem;
+    gap: 1.5rem;
+  }
+  .title {
+    font-size: 1.8rem;
+  }
+  .subtitle {
+    font-size: 0.85rem;
+  }
+  .glassCard {
+    padding: 1.25rem;
+    border-radius: 1.25rem;
+  }
+  .ensembleCard {
+    gap: 1.25rem;
+  }
+  .weatherMain {
+    gap: 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .tempValue {
+    font-size: 2.75rem;
+  }
+  .tempDegree {
+    font-size: 1.5rem;
+  }
+  .weatherLabel {
+    font-size: 1.1rem;
+  }
+  .detailsGrid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .manualSelectorSection {
+    padding: 1rem;
+    border-radius: 1rem;
+  }
+  .table th, .table td {
+    padding: 0.75rem 0.75rem;
+    font-size: 0.75rem;
+  }
 }
 
 

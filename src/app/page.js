@@ -85,6 +85,27 @@ export default function Home() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Mengambil posisi GPS secara otomatis saat pertama kali dimuat
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setSelectedCity({
+            name: 'Lokasi Anda (GPS)',
+            country: 'Koordinat Perangkat',
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            adm4: null
+          });
+        },
+        (error) => {
+          console.log('GPS auto-mount access failed or denied:', error.message);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      );
+    }
+  }, []);
+
   // Ambil list Provinsi di awal
   useEffect(() => {
     async function loadProvinces() {
@@ -217,6 +238,42 @@ export default function Home() {
     setSearchQuery('');
     setSuggestions([]);
     setActiveSuggestionIndex(-1);
+  };
+
+  // Handler GPS manual untuk mengambil posisi pengguna
+  const handleGpsFetch = () => {
+    if (!navigator.geolocation) {
+      alert('Fitur GPS tidak didukung oleh browser Anda.');
+      return;
+    }
+    
+    setLoadingWeather(true);
+    setWeatherError(null);
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setSelectedCity({
+          name: 'Lokasi Anda (GPS)',
+          country: 'Koordinat Perangkat',
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          adm4: null
+        });
+      },
+      (error) => {
+        setLoadingWeather(false);
+        let msg = 'Gagal mengakses GPS.';
+        if (error.code === error.PERMISSION_DENIED) {
+          msg = 'Akses GPS ditolak oleh pengguna.';
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          msg = 'Informasi posisi tidak tersedia.';
+        } else if (error.code === error.TIMEOUT) {
+          msg = 'Waktu permintaan GPS habis.';
+        }
+        alert(msg + ' Menggunakan lokasi default (Jakarta).');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
   };
 
   // Handler dropdown manual berjenjang
@@ -376,6 +433,17 @@ export default function Home() {
             onChange={handleSearchChange}
             onKeyDown={handleKeyDown}
           />
+          <button 
+            type="button" 
+            className={styles.gpsButton} 
+            onClick={handleGpsFetch}
+            title="Gunakan Lokasi Saat Ini (GPS)"
+            style={{
+              right: searchQuery ? '3.25rem' : '1.25rem'
+            }}
+          >
+            <MapPin size={18} />
+          </button>
           {searchQuery && (
             <button className={styles.clearButton} onClick={() => { setSearchQuery(''); setSuggestions([]); }}>
               <X size={18} />
