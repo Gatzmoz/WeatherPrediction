@@ -44,14 +44,56 @@ function formatToWIB(date) {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 }
 
+// Helper to parse current weather from OpenMeteo responses, with hourly fallback
+function parseOpenMeteoCurrent(data) {
+  if (!data) return null;
+  if (data.current) {
+    return {
+      temp: data.current.temperature_2m,
+      humidity: data.current.relative_humidity_2m,
+      windSpeed: data.current.wind_speed_10m,
+      feelsLike: data.current.apparent_temperature,
+      precipitation: data.current.precipitation || 0,
+      cloud: data.current.cloud_cover || 0,
+      weather_class: classifyWeather(data.current.precipitation, data.current.cloud_cover)
+    };
+  } else if (data.hourly && data.hourly.time && data.hourly.time.length > 0) {
+    const nowMs = Date.now();
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    data.hourly.time.forEach((t, idx) => {
+      const diff = Math.abs(new Date(t).getTime() - nowMs);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = idx;
+      }
+    });
+    return {
+      temp: data.hourly.temperature_2m[closestIdx],
+      humidity: data.hourly.relative_humidity_2m[closestIdx],
+      windSpeed: data.hourly.wind_speed_10m[closestIdx],
+      feelsLike: data.hourly.apparent_temperature[closestIdx],
+      precipitation: data.hourly.precipitation[closestIdx] || 0,
+      cloud: data.hourly.cloud_cover[closestIdx] || 0,
+      weather_class: classifyWeather(data.hourly.precipitation[closestIdx], data.hourly.cloud_cover[closestIdx])
+    };
+  }
+  return null;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const lat = searchParams.get('lat');
   const lon = searchParams.get('lon');
   const cityName = searchParams.get('city') || 'Koordinat Terpilih';
+  const adm4 = searchParams.get('adm4');
 
-  if (!lat || !lon) {
-    return NextResponse.json({ error: 'Parameter latitude (lat) dan longitude (lon) diperlukan.' }, { status: 400 });
+  let latVal = lat;
+  let lonVal = lon;
+  let cityNameVal = cityName;
+
+  if (!adm4 && (!lat || !lon)) {
+    return NextResponse.json({ error: 'Parameter koordinat (lat, lon) atau kode wilayah (adm4) diperlukan.' }, { status: 400 });
   }
 
   const weatherApiKey = process.env.WEATHER_API_KEY;
@@ -63,7 +105,8 @@ export async function GET(request) {
     openWeatherMap: { name: 'OpenWeatherMap', active: false, simulated: false, data: null, hourly: null, error: null },
     gfs: { name: 'GFS (NOAA)', active: false, simulated: false, data: null, hourly: null, error: null },
     ecmwf: { name: 'ECMWF (Europe)', active: false, simulated: false, data: null, hourly: null, error: null },
-    icon: { name: 'ICON (DWD)', active: false, simulated: false, data: null, hourly: null, error: null }
+    icon: { name: 'ICON (DWD)', active: false, simulated: false, data: null, hourly: null, error: null },
+    bmkg: { name: 'BMKG (Indonesia)', active: false, simulated: false, data: null, hourly: null, error: null }
   };
 
   // Helper deviasi acak simulasi
@@ -87,24 +130,78 @@ export async function GET(request) {
     };
   };
 
+  // --- FETCH BMKG FIRST JIKA ADM4 DISEDIAKAN ---
+  if (adm4) {
+    try {
+      const bmkgUrl = `https://api.bmkg.go.id/publik/prakiraan-cuaca?adm4=${adm4}`;
+      const bmkgRes = await fetch(bmkgUrl, { next: { revalidate: 900 } });
+      if (bmkgRes.ok) {
+        const bmkgData = await bmkgRes.json();
+        
+        // Update koordinat dan nama kelurahan
+        if (bmkgData.lokasi) {
+          latVal = bmkgData.lokasi.lat.toString();
+          lonVal = bmkgData.lokasi.lon.toString();
+          cityNameVal = `${bmkgData.lokasi.desa}, Kec. ${bmkgData.lokasi.kecamatan}`;
+        }
+
+        const bmkgHourlyList = [];
+        if (bmkgData.data && bmkgData.data[0] && bmkgData.data[0].cuaca) {
+          bmkgData.data[0].cuaca.forEach(dayCuaca => {
+            if (Array.isArray(dayCuaca)) {
+              dayCuaca.forEach(item => {
+                const precip = item.tp !== undefined && item.tp !== null ? item.tp : 0;
+                const cloud = item.tcc !== undefined && item.tcc !== null ? item.tcc : 0;
+                const wind = item.ws !== undefined && item.ws !== null ? item.ws / 3.6 : 0;
+                bmkgHourlyList.push({
+                  time: new Date(item.datetime).getTime(),
+                  temp: item.t,
+                  humidity: item.hu,
+                  windSpeed: wind,
+                  feelsLike: item.t, // Fallback ke suhu karena BMKG tidak menyediakan apparent temperature
+                  precipitation: precip,
+                  cloud: cloud,
+                  weather_class: classifyWeather(precip, cloud)
+                });
+              });
+            }
+          });
+        }
+
+        results.bmkg.hourly = bmkgHourlyList;
+
+        if (bmkgHourlyList.length > 0) {
+          const nowMs = Date.now();
+          let closestIdx = 0;
+          let minDiff = Infinity;
+          bmkgHourlyList.forEach((pt, idx) => {
+            const diff = Math.abs(pt.time - nowMs);
+            if (diff < minDiff) {
+              minDiff = diff;
+              closestIdx = idx;
+            }
+          });
+          results.bmkg.data = bmkgHourlyList[closestIdx];
+          results.bmkg.active = true;
+        }
+      } else {
+        results.bmkg.error = `HTTP ${bmkgRes.status}`;
+      }
+    } catch (err) {
+      results.bmkg.error = err.message;
+    }
+  }
+
   // --- PARALLEL FETCH UNTUK SEMUA API DAN MODEL ---
   await Promise.all([
     // 1. Open-Meteo
     (async () => {
       try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${latVal}&longitude=${lonVal}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        results.openMeteo.data = {
-          temp: data.current.temperature_2m,
-          humidity: data.current.relative_humidity_2m,
-          windSpeed: data.current.wind_speed_10m,
-          feelsLike: data.current.apparent_temperature,
-          precipitation: data.current.precipitation || 0,
-          cloud: data.current.cloud_cover || 0,
-          weather_class: classifyWeather(data.current.precipitation, data.current.cloud_cover)
-        };
+        results.openMeteo.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.openMeteo.hourly = data.hourly.time.map((t, idx) => ({
             time: new Date(t).getTime(),
@@ -127,7 +224,7 @@ export async function GET(request) {
     (async () => {
       if (!weatherApiKey) return;
       try {
-        const url = `https://api.weatherapi.com/v1/forecast.json?key=${weatherApiKey}&q=${lat},${lon}&days=2`;
+        const url = `https://api.weatherapi.com/v1/forecast.json?key=${weatherApiKey}&q=${latVal},${lonVal}&days=2`;
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -166,7 +263,7 @@ export async function GET(request) {
     (async () => {
       if (!openWeatherMapKey) return;
       try {
-        const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
+        const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${latVal}&lon=${lonVal}&appid=${openWeatherMapKey}&units=metric`;
         const currentRes = await fetch(currentUrl, { next: { revalidate: 900 } });
         if (!currentRes.ok) throw new Error(`HTTP ${currentRes.status}`);
         const currentData = await currentRes.json();
@@ -181,7 +278,7 @@ export async function GET(request) {
           cloud: cloudCurrent,
           weather_class: classifyWeather(precipCurrent, cloudCurrent)
         };
-        const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${openWeatherMapKey}&units=metric`;
+        const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${latVal}&lon=${lonVal}&appid=${openWeatherMapKey}&units=metric`;
         const forecastRes = await fetch(forecastUrl, { next: { revalidate: 900 } });
         if (forecastRes.ok) {
           const forecastData = await forecastRes.json();
@@ -209,19 +306,11 @@ export async function GET(request) {
     // 4. GFS (NOAA Model)
     (async () => {
       try {
-        const url = `https://api.open-meteo.com/v1/gfs?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
+        const url = `https://api.open-meteo.com/v1/gfs?latitude=${latVal}&longitude=${lonVal}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        results.gfs.data = {
-          temp: data.current.temperature_2m,
-          humidity: data.current.relative_humidity_2m,
-          windSpeed: data.current.wind_speed_10m,
-          feelsLike: data.current.apparent_temperature,
-          precipitation: data.current.precipitation || 0,
-          cloud: data.current.cloud_cover || 0,
-          weather_class: classifyWeather(data.current.precipitation, data.current.cloud_cover)
-        };
+        results.gfs.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.gfs.hourly = data.hourly.time.map((t, idx) => ({
             time: new Date(t).getTime(),
@@ -243,19 +332,11 @@ export async function GET(request) {
     // 5. ECMWF (Europe Model)
     (async () => {
       try {
-        const url = `https://api.open-meteo.com/v1/ecmwf?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
+        const url = `https://api.open-meteo.com/v1/ecmwf?latitude=${latVal}&longitude=${lonVal}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        results.ecmwf.data = {
-          temp: data.current.temperature_2m,
-          humidity: data.current.relative_humidity_2m,
-          windSpeed: data.current.wind_speed_10m,
-          feelsLike: data.current.apparent_temperature,
-          precipitation: data.current.precipitation || 0,
-          cloud: data.current.cloud_cover || 0,
-          weather_class: classifyWeather(data.current.precipitation, data.current.cloud_cover)
-        };
+        results.ecmwf.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.ecmwf.hourly = data.hourly.time.map((t, idx) => ({
             time: new Date(t).getTime(),
@@ -277,19 +358,11 @@ export async function GET(request) {
     // 6. ICON (German DWD Model)
     (async () => {
       try {
-        const url = `https://api.open-meteo.com/v1/dwd-icon?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
+        const url = `https://api.open-meteo.com/v1/dwd-icon?latitude=${latVal}&longitude=${lonVal}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,cloud_cover&timezone=auto`;
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        results.icon.data = {
-          temp: data.current.temperature_2m,
-          humidity: data.current.relative_humidity_2m,
-          windSpeed: data.current.wind_speed_10m,
-          feelsLike: data.current.apparent_temperature,
-          precipitation: data.current.precipitation || 0,
-          cloud: data.current.cloud_cover || 0,
-          weather_class: classifyWeather(data.current.precipitation, data.current.cloud_cover)
-        };
+        results.icon.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.icon.hourly = data.hourly.time.map((t, idx) => ({
             time: new Date(t).getTime(),
@@ -377,6 +450,8 @@ export async function GET(request) {
     }
   });
 
+  const currentModeProb = Math.round((currentVotes[currentMode] / N) * 10000) / 100;
+
   const avgWindSpeed = calculateMean(activeApis.map(api => api.data.windSpeed));
   const avgFeelsLike = calculateMean(activeApis.map(api => api.data.feelsLike));
   const avgPrecipitation = calculateMean(activeApis.map(api => api.data.precipitation));
@@ -459,6 +534,8 @@ export async function GET(request) {
         }
       });
 
+      const modeProb = Math.round((counts[modeClass] / totalMembers) * 10000) / 100;
+
       // Simpan ke data structure 2 (Spread_Klasifikasi_Cuaca)
       Spread_Klasifikasi_Cuaca.push({
         time_wib: timeWibStr,
@@ -490,6 +567,7 @@ export async function GET(request) {
         windSpeed: Math.round(avgWindAtTime * 10) / 10,
         weather: {
           code: modeClass,
+          percentage: modeProb,
           ...CUACA_INFO_MAP[modeClass]
         },
         sources: {
@@ -498,7 +576,8 @@ export async function GET(request) {
           openWeatherMap: results.openWeatherMap.hourly ? { temp: findClosestPoint(results.openWeatherMap.hourly).temp, icon: CUACA_INFO_MAP[findClosestPoint(results.openWeatherMap.hourly).weather_class].icon } : null,
           gfs: results.gfs.hourly ? { temp: findClosestPoint(results.gfs.hourly).temp, icon: CUACA_INFO_MAP[findClosestPoint(results.gfs.hourly).weather_class].icon } : null,
           ecmwf: results.ecmwf.hourly ? { temp: findClosestPoint(results.ecmwf.hourly).temp, icon: CUACA_INFO_MAP[findClosestPoint(results.ecmwf.hourly).weather_class].icon } : null,
-          icon: results.icon.hourly ? { temp: findClosestPoint(results.icon.hourly).temp, icon: CUACA_INFO_MAP[findClosestPoint(results.icon.hourly).weather_class].icon } : null
+          icon: results.icon.hourly ? { temp: findClosestPoint(results.icon.hourly).temp, icon: CUACA_INFO_MAP[findClosestPoint(results.icon.hourly).weather_class].icon } : null,
+          bmkg: results.bmkg.hourly ? { temp: findClosestPoint(results.bmkg.hourly).temp, icon: CUACA_INFO_MAP[findClosestPoint(results.bmkg.hourly).weather_class].icon } : null
         }
       });
     }
@@ -507,12 +586,13 @@ export async function GET(request) {
   // Ambil informasi cuaca konsensus
   const consensusWeather = {
     code: currentMode,
+    percentage: currentModeProb,
     ...CUACA_INFO_MAP[currentMode]
   };
 
   return NextResponse.json({
-    city: cityName,
-    coordinates: { lat, lon },
+    city: cityNameVal,
+    coordinates: { lat: latVal, lon: lonVal },
     timestamp: new Date().toISOString(),
     ensemble: {
       temp: Math.round(currentTempMean * 10) / 10,
@@ -592,7 +672,18 @@ export async function GET(request) {
         windSpeed: results.icon.data?.windSpeed || null,
         weather: results.icon.data ? { code: results.icon.data.weather_class, ...CUACA_INFO_MAP[results.icon.data.weather_class] } : null,
         error: results.icon.error
+      },
+      bmkg: {
+        name: results.bmkg.name,
+        active: results.bmkg.active,
+        simulated: results.bmkg.simulated,
+        temp: results.bmkg.data?.temp || null,
+        humidity: results.bmkg.data?.humidity || null,
+        windSpeed: results.bmkg.data?.windSpeed || null,
+        weather: results.bmkg.data ? { code: results.bmkg.data.weather_class, ...CUACA_INFO_MAP[results.bmkg.data.weather_class] } : null,
+        error: results.bmkg.error
       }
     }
   });
 }
+

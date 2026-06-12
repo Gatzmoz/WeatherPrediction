@@ -17,6 +17,10 @@ export default function EnsembleChart({ data }) {
     { key: 'icon', name: 'ICON (DWD)', color: '#06b6d4' }
   ];
 
+  if (data.sources && data.sources.bmkg && data.sources.bmkg.active) {
+    sources.push({ key: 'bmkg', name: 'BMKG (Indonesia)', color: '#eab308' });
+  }
+
   // Ekstrak data untuk grafik
   const chartData = sources.map(src => {
     const srcData = data.sources[src.key];

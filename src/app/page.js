@@ -49,10 +49,27 @@ export default function Home() {
     name: 'Jakarta',
     country: 'Indonesia',
     latitude: -6.2146,
-    longitude: 106.8451
+    longitude: 106.8451,
+    adm4: null
   });
 
   const [activeTableTab, setActiveTableTab] = useState('continuous');
+
+  // States untuk selector wilayah administratif berjenjang
+  const [provinces, setProvinces] = useState([]);
+  const [regencies, setRegencies] = useState([]);
+  const [districts, setDistricts] = useState([]);
+  const [villages, setVillages] = useState([]);
+
+  const [selectedProvince, setSelectedProvince] = useState('');
+  const [selectedRegency, setSelectedRegency] = useState('');
+  const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [selectedVillage, setSelectedVillage] = useState('');
+
+  const [loadingProvinces, setLoadingProvinces] = useState(false);
+  const [loadingRegencies, setLoadingRegencies] = useState(false);
+  const [loadingDistricts, setLoadingDistricts] = useState(false);
+  const [loadingVillages, setLoadingVillages] = useState(false);
 
   const searchRef = useRef(null);
   const debounceTimer = useRef(null);
@@ -68,15 +85,36 @@ export default function Home() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Ambil list Provinsi di awal
+  useEffect(() => {
+    async function loadProvinces() {
+      setLoadingProvinces(true);
+      try {
+        const res = await fetch('/api/regions?level=province');
+        if (res.ok) {
+          const data = await res.json();
+          setProvinces(data);
+        }
+      } catch (err) {
+        console.error('Error loading provinces:', err);
+      } finally {
+        setLoadingProvinces(false);
+      }
+    }
+    loadProvinces();
+  }, []);
+
   // Ambil data cuaca saat kota terpilih berubah
   useEffect(() => {
     async function fetchWeather() {
       setLoadingWeather(true);
       setWeatherError(null);
       try {
-        const response = await fetch(
-          `/api/weather?lat=${selectedCity.latitude}&lon=${selectedCity.longitude}&city=${encodeURIComponent(selectedCity.name)}`
-        );
+        let url = `/api/weather?lat=${selectedCity.latitude}&lon=${selectedCity.longitude}&city=${encodeURIComponent(selectedCity.name)}`;
+        if (selectedCity.adm4) {
+          url = `/api/weather?adm4=${selectedCity.adm4}&city=${encodeURIComponent(selectedCity.name)}`;
+        }
+        const response = await fetch(url);
         if (!response.ok) {
           throw new Error('Gagal mengambil data cuaca dari server.');
         }
@@ -96,7 +134,7 @@ export default function Home() {
     fetchWeather();
   }, [selectedCity]);
 
-  // Handler input pencarian dengan debouncing
+  // Handler input pencarian dengan debouncing (Gabungan Global & Kelurahan Indonesia)
   const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchQuery(value);
@@ -111,13 +149,44 @@ export default function Home() {
     setLoadingSuggestions(true);
     debounceTimer.current = setTimeout(async () => {
       try {
-        const res = await fetch(
+        // Fetch hasil global
+        const globalPromise = fetch(
           `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(value)}&count=5&language=id&format=json`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setSuggestions(data.results || []);
+        ).then(res => res.ok ? res.json() : { results: [] });
+
+        // Fetch hasil lokal kelurahan
+        const localPromise = fetch(
+          `/api/regions?search=${encodeURIComponent(value)}`
+        ).then(res => res.ok ? res.json() : []);
+
+        const [globalData, localData] = await Promise.all([globalPromise, localPromise]);
+
+        const combined = [];
+        if (globalData.results && globalData.results.length > 0) {
+          globalData.results.forEach(item => {
+            combined.push({
+              type: 'global',
+              id: item.id,
+              name: item.name,
+              country: item.country || item.admin1 || '',
+              latitude: item.latitude,
+              longitude: item.longitude
+            });
+          });
         }
+        if (localData && localData.length > 0) {
+          localData.forEach(item => {
+            combined.push({
+              type: 'local',
+              id: item.code,
+              name: item.name,
+              country: `${item.district}, ${item.regency}, ${item.province}`,
+              code: item.code
+            });
+          });
+        }
+
+        setSuggestions(combined);
       } catch (err) {
         console.error('Error fetching suggestions:', err);
       } finally {
@@ -126,17 +195,123 @@ export default function Home() {
     }, 450);
   };
 
-  // Pilih kota dari dropdown geocoding
+  // Pilih kota dari dropdown suggestions
   const handleSelectCity = (city) => {
-    setSelectedCity({
-      name: city.name,
-      country: city.country || city.admin1 || '',
-      latitude: city.latitude,
-      longitude: city.longitude
-    });
+    if (city.type === 'local') {
+      setSelectedCity({
+        name: city.name,
+        country: city.country,
+        latitude: 0,
+        longitude: 0,
+        adm4: city.code
+      });
+    } else {
+      setSelectedCity({
+        name: city.name,
+        country: city.country || '',
+        latitude: city.latitude,
+        longitude: city.longitude,
+        adm4: null
+      });
+    }
     setSearchQuery('');
     setSuggestions([]);
     setActiveSuggestionIndex(-1);
+  };
+
+  // Handler dropdown manual berjenjang
+  const handleProvinceChange = async (e) => {
+    const code = e.target.value;
+    setSelectedProvince(code);
+    setSelectedRegency('');
+    setSelectedDistrict('');
+    setSelectedVillage('');
+    setRegencies([]);
+    setDistricts([]);
+    setVillages([]);
+
+    if (!code) return;
+
+    setLoadingRegencies(true);
+    try {
+      const res = await fetch(`/api/regions?level=regency&parent=${code}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRegencies(data);
+      }
+    } catch (err) {
+      console.error('Error loading regencies:', err);
+    } finally {
+      setLoadingRegencies(false);
+    }
+  };
+
+  const handleRegencyChange = async (e) => {
+    const code = e.target.value;
+    setSelectedRegency(code);
+    setSelectedDistrict('');
+    setSelectedVillage('');
+    setDistricts([]);
+    setVillages([]);
+
+    if (!code) return;
+
+    setLoadingDistricts(true);
+    try {
+      const res = await fetch(`/api/regions?level=district&parent=${code}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDistricts(data);
+      }
+    } catch (err) {
+      console.error('Error loading districts:', err);
+    } finally {
+      setLoadingDistricts(false);
+    }
+  };
+
+  const handleDistrictChange = async (e) => {
+    const code = e.target.value;
+    setSelectedDistrict(code);
+    setSelectedVillage('');
+    setVillages([]);
+
+    if (!code) return;
+
+    setLoadingVillages(true);
+    try {
+      const res = await fetch(`/api/regions?level=village&parent=${code}`);
+      if (res.ok) {
+        const data = await res.json();
+        setVillages(data);
+      }
+    } catch (err) {
+      console.error('Error loading villages:', err);
+    } finally {
+      setLoadingVillages(false);
+    }
+  };
+
+  const handleVillageChange = (e) => {
+    const code = e.target.value;
+    setSelectedVillage(code);
+
+    if (!code) return;
+
+    const village = villages.find(v => v.code === code);
+    const districtName = districts.find(d => d.code === selectedDistrict)?.name || '';
+    const regencyName = regencies.find(r => r.code === selectedRegency)?.name || '';
+    const provinceName = provinces.find(p => p.code === selectedProvince)?.name || '';
+
+    if (village) {
+      setSelectedCity({
+        name: village.name,
+        country: `${districtName}, ${regencyName}, ${provinceName}`,
+        latitude: 0,
+        longitude: 0,
+        adm4: code
+      });
+    }
   };
 
   // Navigasi keyboard di dropdown suggestions
@@ -217,12 +392,28 @@ export default function Home() {
                 className={`${styles.suggestionItem} ${index === activeSuggestionIndex ? styles.suggestionItemActive : ''}`}
                 onClick={() => handleSelectCity(city)}
               >
-                <span className={styles.suggestionName}>{city.name}</span>
-                <span className={styles.suggestionCountry}>
-                  {city.admin1 ? `${city.admin1}, ` : ''}{city.country} 
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                    ({city.latitude.toFixed(2)}°, {city.longitude.toFixed(2)}°)
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                  <span className={styles.suggestionName}>{city.name}</span>
+                  <span className={styles.suggestionBadge} style={{
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    padding: '0.15rem 0.45rem',
+                    borderRadius: '0.25rem',
+                    background: city.type === 'local' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                    color: city.type === 'local' ? '#eab308' : '#38bdf8',
+                    border: city.type === 'local' ? '1px solid rgba(234, 179, 8, 0.3)' : '1px solid rgba(56, 189, 248, 0.3)'
+                  }}>
+                    {city.type === 'local' ? 'Desa/Kel (BMKG)' : 'Global'}
                   </span>
+                </div>
+                <span className={styles.suggestionCountry}>
+                  {city.country}
+                  {city.type === 'global' && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                      ({city.latitude.toFixed(2)}°, {city.longitude.toFixed(2)}°)
+                    </span>
+                  )}
                 </span>
               </button>
             ))}
@@ -237,6 +428,75 @@ export default function Home() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* Selector Wilayah Manual Indonesia */}
+      <section className={styles.manualSelectorSection}>
+        <div className={styles.manualSelectorHeader}>
+          <Database size={16} style={{ color: 'var(--accent-color)', marginRight: '0.25rem' }} />
+          <span>Cari wilayah secara manual (Khusus Indonesia):</span>
+        </div>
+        <div className={styles.dropdownsGrid}>
+          <div className={styles.dropdownCol}>
+            <select 
+              value={selectedProvince} 
+              onChange={handleProvinceChange}
+              className={styles.selectInput}
+              disabled={loadingProvinces}
+            >
+              <option value="">-- Pilih Provinsi --</option>
+              {provinces.map(p => (
+                <option key={p.code} value={p.code}>{p.name}</option>
+              ))}
+            </select>
+            {loadingProvinces && <div className={styles.dropdownSpinner}></div>}
+          </div>
+
+          <div className={styles.dropdownCol}>
+            <select 
+              value={selectedRegency} 
+              onChange={handleRegencyChange}
+              className={styles.selectInput}
+              disabled={!selectedProvince || loadingRegencies}
+            >
+              <option value="">-- Pilih Kota/Kab --</option>
+              {regencies.map(r => (
+                <option key={r.code} value={r.code}>{r.name}</option>
+              ))}
+            </select>
+            {loadingRegencies && <div className={styles.dropdownSpinner}></div>}
+          </div>
+
+          <div className={styles.dropdownCol}>
+            <select 
+              value={selectedDistrict} 
+              onChange={handleDistrictChange}
+              className={styles.selectInput}
+              disabled={!selectedRegency || loadingDistricts}
+            >
+              <option value="">-- Pilih Kecamatan --</option>
+              {districts.map(d => (
+                <option key={d.code} value={d.code}>{d.name}</option>
+              ))}
+            </select>
+            {loadingDistricts && <div className={styles.dropdownSpinner}></div>}
+          </div>
+
+          <div className={styles.dropdownCol}>
+            <select 
+              value={selectedVillage} 
+              onChange={handleVillageChange}
+              className={styles.selectInput}
+              disabled={!selectedDistrict || loadingVillages}
+            >
+              <option value="">-- Pilih Kelurahan/Desa --</option>
+              {villages.map(v => (
+                <option key={v.code} value={v.code}>{v.name}</option>
+              ))}
+            </select>
+            {loadingVillages && <div className={styles.dropdownSpinner}></div>}
+          </div>
+        </div>
       </section>
 
       {/* SKELETON LOADING STATE */}
@@ -306,6 +566,9 @@ export default function Home() {
                 </div>
                 <div className={styles.weatherLabel}>
                   {weatherData.ensemble.weather.label}
+                  {weatherData.ensemble.weather.percentage !== undefined && (
+                    <span className={styles.percentageLabel}> ({weatherData.ensemble.weather.percentage}%)</span>
+                  )}
                 </div>
                 <div className={styles.feelsLike}>
                   Terasa seperti {weatherData.ensemble.feelsLike}°C
@@ -387,6 +650,10 @@ export default function Home() {
                     <WeatherIcon iconName={fc.weather.icon} size={28} />
                   </div>
                   <span className={styles.forecastTemp}>{fc.temp}°C</span>
+                  <span className={styles.forecastWeatherLabel}>{fc.weather.label}</span>
+                  {fc.weather.percentage !== undefined && (
+                    <span className={styles.forecastPercentage}>{fc.weather.percentage}%</span>
+                  )}
                   
                   <div className={styles.forecastMeta}>
                     <div className={styles.forecastMetaItem}>

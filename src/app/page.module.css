@@ -839,3 +839,140 @@
   opacity: 0.8;
 }
 
+/* Styling Baru untuk Selector Wilayah Tingkat IV & Kemungkinan Konsensus */
+.manualSelectorSection {
+  width: 100%;
+  max-width: 800px;
+  margin: -0.5rem auto 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--border-color);
+  border-radius: 1.25rem;
+  padding: 1.25rem;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.2);
+}
+
+.manualSelectorHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dropdownsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .dropdownsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 992px) {
+  .dropdownsGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.dropdownCol {
+  position: relative;
+  width: 100%;
+}
+
+.selectInput {
+  width: 100%;
+  padding: 0.7rem 1.75rem 0.7rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 550;
+  color: var(--text-primary);
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectInput:focus:not(:disabled) {
+  border-color: var(--accent-color);
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.selectInput:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Custom Dropdown Arrow */
+.dropdownCol::after {
+  content: "▼";
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  position: absolute;
+  pointer-events: none;
+}
+
+.dropdownSpinner {
+  position: absolute;
+  right: 2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--accent-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  pointer-events: none;
+}
+
+.percentageLabel {
+  font-size: 1.05rem;
+  font-weight: 750;
+  color: var(--accent-color);
+  opacity: 0.95;
+}
+
+.forecastWeatherLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forecastPercentage {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--accent-color);
+  margin-top: -0.1rem;
+}
+
+/* Jaga agar card forecast sedikit lebih lebar untuk label cuaca & persentase */
+.forecastCard {
+  flex: 0 0 130px !important;
+}
+
+.suggestionBadge {
+  transition: all 0.2s ease;
+}
+
+
