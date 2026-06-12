@@ -544,7 +544,7 @@ export default function Home() {
                 <div>
                   <div>{weatherData.city}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '0.1rem' }}>
-                    {selectedCity.country}
+                    {selectedCity.country} {weatherData.timezone_abbreviation && `(${weatherData.timezone_abbreviation})`}
                   </div>
                 </div>
               </div>
@@ -588,6 +588,23 @@ export default function Home() {
                     ? ' (Tingkat ketidakpastian tinggi)' 
                     : ' (Konsensus wajar)'}
                 </span>
+              </div>
+            )}
+
+            {/* Informasi Zona Waktu */}
+            {weatherData.timezone && (
+              <div className={styles.timezoneIndicator} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                fontSize: '0.8rem',
+                color: 'var(--text-secondary)',
+                marginTop: '1rem',
+                paddingTop: '0.75rem',
+                borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+              }}>
+                <span style={{ color: 'var(--accent-color)', fontWeight: 650 }}>Zona Waktu:</span>
+                <span>{weatherData.timezone_name} ({weatherData.timezone_abbreviation})</span>
               </div>
             )}
 
@@ -731,7 +748,7 @@ export default function Home() {
                   <table className={styles.table}>
                     <thead>
                       <tr>
-                        <th>Waktu (time_wib)</th>
+                        <th>Waktu ({weatherData.timezone_abbreviation || 'WIB'})</th>
                         <th>Temp_Mean (&mu; Suhu)</th>
                         <th>Temp_StdDev (&sigma; Suhu)</th>
                         <th>Humi_Mean (&mu; Kelembapan)</th>
@@ -765,7 +782,7 @@ export default function Home() {
                   <table className={styles.table}>
                     <thead>
                       <tr>
-                        <th>Waktu (time_wib)</th>
+                        <th>Waktu ({weatherData.timezone_abbreviation || 'WIB'})</th>
                         <th>Cerah</th>
                         <th>Cerah Berawan</th>
                         <th>Berawan</th>

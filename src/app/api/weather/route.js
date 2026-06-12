@@ -26,10 +26,25 @@ const CUACA_INFO_MAP = {
   'Hujan Lebat': { label: 'Hujan Lebat', icon: 'CloudLightning', color: 'heavy-rain' }
 };
 
-// Format tanggal ke WIB (Asia/Jakarta) YYYY-MM-DD HH:mm
-function formatToWIB(date) {
+// Helper to get timezone details (abbreviation & long name) in Indonesian locale
+function getTimezoneInfo(timeZoneName, date = new Date()) {
+  const tz = timeZoneName || 'Asia/Jakarta';
+  try {
+    const parts = new Intl.DateTimeFormat('id-ID', { timeZone: tz, timeZoneName: 'short' }).formatToParts(date);
+    const abbr = parts.find(p => p.type === 'timeZoneName')?.value || 'WIB';
+    const longName = new Intl.DateTimeFormat('id-ID', { timeZone: tz, timeZoneName: 'long' })
+      .formatToParts(date)
+      .find(p => p.type === 'timeZoneName')?.value || 'Waktu Indonesia Barat';
+    return { timezone: tz, abbreviation: abbr, name: longName };
+  } catch (e) {
+    return { timezone: tz, abbreviation: 'WIB', name: 'Waktu Indonesia Barat' };
+  }
+}
+
+// Format date to local timezone YYYY-MM-DD HH:mm
+function formatToLocalTimezone(date, timeZone) {
   const options = {
-    timeZone: 'Asia/Jakarta',
+    timeZone: timeZone || 'Asia/Jakarta',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -42,6 +57,37 @@ function formatToWIB(date) {
   const p = {};
   parts.forEach(part => { p[part.type] = part.value; });
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
+}
+
+// Get localized hour (e.g. "08:00") in target timezone
+function getLocalHour(date, timeZone) {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timeZone || 'Asia/Jakarta',
+      hour: 'numeric',
+      hour12: false
+    });
+    return formatter.format(date).padStart(2, '0') + ':00';
+  } catch (e) {
+    return date.getUTCHours().toString().padStart(2, '0') + ':00';
+  }
+}
+
+// Get localized short date (e.g. "Sab, 13 Jun") in target timezone
+function getLocalDateString(date, timeZone) {
+  try {
+    const formatter = new Intl.DateTimeFormat('id-ID', {
+      timeZone: timeZone || 'Asia/Jakarta',
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short'
+    });
+    return formatter.format(date);
+  } catch (e) {
+    const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    return `${dayNames[date.getUTCDay()]} ${date.getUTCDate()} ${monthNames[date.getUTCMonth()]}`;
+  }
 }
 
 // Helper to parse current weather from OpenMeteo responses, with hourly fallback
@@ -91,6 +137,10 @@ export async function GET(request) {
   let latVal = lat;
   let lonVal = lon;
   let cityNameVal = cityName;
+
+  let timezoneVal = 'Asia/Jakarta';
+  let timezoneAbbrVal = 'WIB';
+  let timezoneNameVal = 'Waktu Indonesia Barat';
 
   if (!adm4 && (!lat || !lon)) {
     return NextResponse.json({ error: 'Parameter koordinat (lat, lon) atau kode wilayah (adm4) diperlukan.' }, { status: 400 });
@@ -201,6 +251,7 @@ export async function GET(request) {
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        if (data.timezone) timezoneVal = data.timezone;
         results.openMeteo.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.openMeteo.hourly = data.hourly.time.map((t, idx) => ({
@@ -310,6 +361,7 @@ export async function GET(request) {
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        if (data.timezone) timezoneVal = data.timezone;
         results.gfs.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.gfs.hourly = data.hourly.time.map((t, idx) => ({
@@ -336,6 +388,7 @@ export async function GET(request) {
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        if (data.timezone) timezoneVal = data.timezone;
         results.ecmwf.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.ecmwf.hourly = data.hourly.time.map((t, idx) => ({
@@ -362,6 +415,7 @@ export async function GET(request) {
         const res = await fetch(url, { next: { revalidate: 900 } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        if (data.timezone) timezoneVal = data.timezone;
         results.icon.data = parseOpenMeteoCurrent(data);
         if (data.hourly) {
           results.icon.hourly = data.hourly.time.map((t, idx) => ({
@@ -381,6 +435,11 @@ export async function GET(request) {
       }
     })()
   ]);
+
+  // Resolve timezone info based on what we captured
+  const tzInfo = getTimezoneInfo(timezoneVal);
+  timezoneAbbrVal = tzInfo.abbreviation;
+  timezoneNameVal = tzInfo.name;
 
   // Fallback Simulasi jika WeatherAPI atau OpenWeatherMap tidak aktif
   if (!results.weatherApi.active && results.openMeteo.data) {
@@ -481,7 +540,7 @@ export async function GET(request) {
     });
 
     if (pointsAtTime.length > 0) {
-      const timeWibStr = formatToWIB(targetTime);
+      const timeWibStr = formatToLocalTimezone(targetTime, timezoneVal);
 
       // --- Modul 2: Agregasi Variabel Kontinu (Suhu & Kelembapan) ---
       const tempsAtTime = pointsAtTime.map(p => p.data.temp);
@@ -549,10 +608,8 @@ export async function GET(request) {
       });
 
       // Format Jam dan Hari untuk Tampilan Widget
-      const hourStr = targetTime.getHours().toString().padStart(2, '0') + ':00';
-      const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-      const dateStr = `${dayNames[targetTime.getDay()]} ${targetTime.getDate()} ${monthNames[targetTime.getMonth()]}`;
+      const hourStr = getLocalHour(targetTime, timezoneVal);
+      const dateStr = getLocalDateString(targetTime, timezoneVal);
 
       // Hitung kecepatan angin rata-rata
       const windAtTime = pointsAtTime.map(p => p.data.windSpeed);
@@ -594,6 +651,9 @@ export async function GET(request) {
     city: cityNameVal,
     coordinates: { lat: latVal, lon: lonVal },
     timestamp: new Date().toISOString(),
+    timezone: timezoneVal,
+    timezone_abbreviation: timezoneAbbrVal,
+    timezone_name: timezoneNameVal,
     ensemble: {
       temp: Math.round(currentTempMean * 10) / 10,
       temp_stddev: Math.round(currentTempStdDev * 100) / 100,
